@@ -36,6 +36,7 @@ export interface Database {
           id: string;
           contract_number: string;
           crop: string;
+          owner: string | null;
           buyer: string | null;
           destination: string;
           through: string | null;
