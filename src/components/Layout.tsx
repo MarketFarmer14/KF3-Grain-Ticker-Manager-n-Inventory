@@ -8,6 +8,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const { logout } = useAuth();
   const [reviewCount, setReviewCount] = useState(0);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   // Smart year default: 2025 until September 1, then 2026
   const getDefaultYear = () => {
@@ -52,15 +53,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
     setCropYear(year);
     localStorage.setItem('grain_ticket_year', year);
     
-    // Trigger a storage event that other components can listen to
-    window.dispatchEvent(new StorageEvent('storage', {
-      key: 'grain_ticket_year',
-      newValue: year,
-      url: window.location.href
-    }));
+    // Force child components to re-render by updating a key
+    setRefreshKey(prev => prev + 1);
     
-    // Force page refresh without navigation
-    window.location.reload();
+    // Navigate to same page to trigger useEffect refresh in child components
+    const currentPath = location.pathname;
+    navigate(currentPath + '?refresh=' + Date.now(), { replace: true });
   };
 
   const handleLogout = () => {
@@ -122,8 +120,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </button>
       </div>
 
-      {/* Main Content */}
-      <div className="flex-1 overflow-auto">{children}</div>
+      {/* Main Content - Pass refresh key to force re-render */}
+      <div key={refreshKey} className="flex-1 overflow-auto">{children}</div>
     </div>
   );
 }
