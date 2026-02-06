@@ -6,15 +6,22 @@ import * as XLSX from 'xlsx';
 type Contract = Database['public']['Tables']['contracts']['Row'];
 type ContractInsert = Database['public']['Tables']['contracts']['Insert'];
 
+type SortField = 'priority' | 'contract_number' | 'crop' | 'buyer' | 'destination' | 'contracted_bushels' | 'delivered_bushels' | 'remaining_bushels' | 'percent_filled';
+type SortDirection = 'asc' | 'desc';
+
 export function ContractsPage() {
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [showBulkEditModal, setShowBulkEditModal] = useState(false);
   const [editingContract, setEditingContract] = useState<Contract | null>(null);
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importPreview, setImportPreview] = useState<any[]>([]);
   const [importing, setImporting] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [sortField, setSortField] = useState<SortField>('priority');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
 
   const [formData, setFormData] = useState<Partial<ContractInsert>>({
     contract_number: '',
@@ -31,11 +38,17 @@ export function ContractsPage() {
     crop_year: '',
   });
 
+  const [bulkEditData, setBulkEditData] = useState({
+    priority: '',
+    through: '',
+    crop_year: '',
+  });
+
   const currentYear = localStorage.getItem('grain_ticket_year') || new Date().getFullYear().toString();
 
   useEffect(() => {
     fetchContracts();
-  }, [currentYear]);
+  }, [currentYear, sortField, sortDirection]);
 
   const fetchContracts = async () => {
     setLoading(true);
@@ -43,7 +56,7 @@ export function ContractsPage() {
       .from('contracts')
       .select('*')
       .eq('crop_year', currentYear)
-      .order('priority', { ascending: true });
+      .order(sortField, { ascending: sortDirection === 'asc' });
 
     if (error) {
       console.error('Error fetching contracts:', error);
@@ -53,28 +66,98 @@ export function ContractsPage() {
     setLoading(false);
   };
 
-  // Convert Excel date serial number to YYYY-MM-DD
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === contracts.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(contracts.map(c => c.id)));
+    }
+  };
+
+  const toggleSelect = (id: string) => {
+    const newSelected = new Set(selectedIds);
+    if (newSelected.has(id)) {
+      newSelected.delete(id);
+    } else {
+      newSelected.add(id);
+    }
+    setSelectedIds(newSelected);
+  };
+
+  const handleBulkEdit = async () => {
+    if (selectedIds.size === 0) return;
+
+    const updates: any = {};
+    if (bulkEditData.priority) updates.priority = parseInt(bulkEditData.priority);
+    if (bulkEditData.through) updates.through = bulkEditData.through;
+    if (bulkEditData.crop_year) updates.crop_year = bulkEditData.crop_year;
+
+    if (Object.keys(updates).length === 0) {
+      alert('Please select at least one field to update');
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('contracts')
+        .update(updates)
+        .in('id', Array.from(selectedIds));
+
+      if (error) throw error;
+
+      alert(`Updated ${selectedIds.size} contracts`);
+      setShowBulkEditModal(false);
+      setSelectedIds(new Set());
+      setBulkEditData({ priority: '', through: '', crop_year: '' });
+      fetchContracts();
+    } catch (error: any) {
+      alert('Bulk edit failed: ' + error.message);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`Delete ${selectedIds.size} contracts? This cannot be undone.`)) return;
+
+    try {
+      const { error } = await supabase
+        .from('contracts')
+        .delete()
+        .in('id', Array.from(selectedIds));
+
+      if (error) throw error;
+
+      alert(`Deleted ${selectedIds.size} contracts`);
+      setSelectedIds(new Set());
+      fetchContracts();
+    } catch (error: any) {
+      alert('Bulk delete failed: ' + error.message);
+    }
+  };
+
   const convertExcelDate = (excelDate: any): string | null => {
     if (!excelDate) return null;
-
-    // If it's already a string date, return it
     if (typeof excelDate === 'string') {
-      // Try to parse it as a date
       const parsed = new Date(excelDate);
       if (!isNaN(parsed.getTime())) {
         return parsed.toISOString().split('T')[0];
       }
       return null;
     }
-
-    // If it's an Excel serial number
     if (typeof excelDate === 'number') {
-      // Excel date system starts at 1900-01-01 (but Excel incorrectly treats 1900 as a leap year)
-      const excelEpoch = new Date(1899, 11, 30); // Dec 30, 1899
-      const jsDate = new Date(excelEpoch.getTime() + excelDate * 86400000); // Add days in milliseconds
+      const excelEpoch = new Date(1899, 11, 30);
+      const jsDate = new Date(excelEpoch.getTime() + excelDate * 86400000);
       return jsDate.toISOString().split('T')[0];
     }
-
     return null;
   };
 
@@ -92,40 +175,26 @@ export function ContractsPage() {
         const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
         const jsonData = XLSX.utils.sheet_to_json(firstSheet);
 
-        // Map Excel columns: Owner | Buyer | Destination | Contract# | Crop | Bushels | Window Start | Window End
+        // Map to exact screenshot layout: Owner | Buyer | Destination | Contract# | Crop | Bushels | Price | Window Start | Window End | Year | Delivered | Status
         const mapped = jsonData.map((row: any) => {
-          const owner = row['Owner'] || '';
-          const buyer = row['Buyer'] || '';
-          const destination = row['Destination'] || '';
-          const contractNum = row['Contract#'] || '';
-          const crop = row['Crop'] || '';
-          const bushels = parseFloat(row['Bushels'] || '0');
-
-          // Convert Excel date numbers to YYYY-MM-DD format
-          const windowStart = row['Window Start']
-            ? convertExcelDate(row['Window Start'])
-            : null;
-          const windowEnd = row['Window End']
-            ? convertExcelDate(row['Window End'])
-            : null;
-
           return {
-            contract_number: contractNum.toString(),
-            crop: crop,
-            buyer: buyer, // "Buyer" column
-            destination: destination, // "Destination" column
-            through: 'Any', // Default
-            contracted_bushels: bushels,
-            start_date: windowStart,
-            end_date: windowEnd,
-            priority: 5,
-            notes: owner ? `Owner: ${owner}` : '', // Store Owner in notes if needed
+            contract_number: (row['Contract#'] || '').toString(),
+            crop: row['Crop'] || '',
+            buyer: row['Buyer'] || '',
+            destination: row['Destination'] || '',
+            through: 'Any', // Not in import, set default
+            contracted_bushels: parseFloat(row['Bushels'] || '0'),
+            start_date: convertExcelDate(row['Window Start']),
+            end_date: convertExcelDate(row['Window End']),
+            priority: 5, // Default
+            crop_year: row['Year'] || currentYear,
+            notes: row['Owner'] ? `Owner: ${row['Owner']}` : '',
           };
         });
 
         setImportPreview(mapped);
       } catch (error) {
-        alert('Error reading Excel file. Please check format and ensure column headers match exactly.');
+        alert('Error reading Excel file. Check format and column headers match exactly.');
         console.error(error);
       }
     };
@@ -134,17 +203,10 @@ export function ContractsPage() {
 
   const handleImport = async () => {
     if (importPreview.length === 0) return;
-
     setImporting(true);
 
     try {
-      const contractsWithYear = importPreview.map((c) => ({
-        ...c,
-        crop_year: currentYear,
-      }));
-
-      const { error } = await supabase.from('contracts').insert(contractsWithYear);
-
+      const { error } = await supabase.from('contracts').insert(importPreview);
       if (error) throw error;
 
       alert(`Successfully imported ${importPreview.length} contracts!`);
@@ -154,11 +216,10 @@ export function ContractsPage() {
       fetchContracts();
     } catch (error: any) {
       if (error.code === '23505') {
-        alert('Error: Some contract numbers already exist. Please check for duplicates.');
+        alert('Error: Some contract numbers already exist.');
       } else {
         alert('Import failed: ' + error.message);
       }
-      console.error(error);
     } finally {
       setImporting(false);
     }
@@ -183,7 +244,7 @@ export function ContractsPage() {
         .eq('id', editingContract.id);
 
       if (error) {
-        alert('Error updating contract: ' + error.message);
+        alert('Error updating: ' + error.message);
       } else {
         setShowModal(false);
         setEditingContract(null);
@@ -192,9 +253,8 @@ export function ContractsPage() {
       }
     } else {
       const { error } = await supabase.from('contracts').insert([dataToSave]);
-
       if (error) {
-        alert('Error creating contract: ' + error.message);
+        alert('Error creating: ' + error.message);
       } else {
         setShowModal(false);
         resetForm();
@@ -204,12 +264,10 @@ export function ContractsPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this contract?')) return;
-
+    if (!confirm('Delete this contract?')) return;
     const { error } = await supabase.from('contracts').delete().eq('id', id);
-
     if (error) {
-      alert('Error deleting contract: ' + error.message);
+      alert('Error deleting: ' + error.message);
     } else {
       fetchContracts();
     }
@@ -251,6 +309,11 @@ export function ContractsPage() {
     setShowModal(true);
   };
 
+  const SortIcon = ({ field }: { field: SortField }) => {
+    if (sortField !== field) return <span className="text-gray-500 ml-1">↕</span>;
+    return sortDirection === 'asc' ? <span className="ml-1">↑</span> : <span className="ml-1">↓</span>;
+  };
+
   if (loading) {
     return <div className="p-8 text-center text-white">Loading contracts...</div>;
   }
@@ -258,23 +321,39 @@ export function ContractsPage() {
   return (
     <div className="p-4 md:p-8">
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold text-white">Contracts</h1>
+        <h1 className="text-3xl font-bold text-white">Contracts ({currentYear})</h1>
         <div className="flex gap-2">
+          {selectedIds.size > 0 && (
+            <>
+              <button
+                onClick={() => setShowBulkEditModal(true)}
+                className="px-4 py-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg"
+              >
+                Edit {selectedIds.size} Selected
+              </button>
+              <button
+                onClick={handleBulkDelete}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg"
+              >
+                Delete {selectedIds.size} Selected
+              </button>
+            </>
+          )}
           <button
             onClick={() => {
               setEditingContract(null);
               resetForm();
               setShowModal(true);
             }}
-            className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg flex items-center gap-2"
+            className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg"
           >
             + New Contract
           </button>
           <button
             onClick={() => setShowImportModal(true)}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center gap-2"
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
           >
-            📊 Import from Excel
+            📊 Import
           </button>
         </div>
       </div>
@@ -283,22 +362,83 @@ export function ContractsPage() {
         <table className="w-full bg-gray-800 rounded-lg">
           <thead className="bg-gray-700">
             <tr>
-              <th className="px-4 py-3 text-left text-white">Priority</th>
-              <th className="px-4 py-3 text-left text-white">Contract #</th>
-              <th className="px-4 py-3 text-left text-white">Crop</th>
-              <th className="px-4 py-3 text-left text-white">Buyer</th>
-              <th className="px-4 py-3 text-left text-white">Destination</th>
+              <th className="px-4 py-3 text-white">
+                <input
+                  type="checkbox"
+                  checked={selectedIds.size === contracts.length && contracts.length > 0}
+                  onChange={toggleSelectAll}
+                  className="w-4 h-4"
+                />
+              </th>
+              <th
+                className="px-4 py-3 text-left text-white cursor-pointer hover:bg-gray-600"
+                onClick={() => handleSort('priority')}
+              >
+                Priority <SortIcon field="priority" />
+              </th>
+              <th
+                className="px-4 py-3 text-left text-white cursor-pointer hover:bg-gray-600"
+                onClick={() => handleSort('contract_number')}
+              >
+                Contract # <SortIcon field="contract_number" />
+              </th>
+              <th
+                className="px-4 py-3 text-left text-white cursor-pointer hover:bg-gray-600"
+                onClick={() => handleSort('crop')}
+              >
+                Crop <SortIcon field="crop" />
+              </th>
+              <th
+                className="px-4 py-3 text-left text-white cursor-pointer hover:bg-gray-600"
+                onClick={() => handleSort('buyer')}
+              >
+                Buyer <SortIcon field="buyer" />
+              </th>
+              <th
+                className="px-4 py-3 text-left text-white cursor-pointer hover:bg-gray-600"
+                onClick={() => handleSort('destination')}
+              >
+                Destination <SortIcon field="destination" />
+              </th>
               <th className="px-4 py-3 text-left text-white">Through</th>
-              <th className="px-4 py-3 text-right text-white">Contracted</th>
-              <th className="px-4 py-3 text-right text-white">Delivered</th>
-              <th className="px-4 py-3 text-right text-white">Remaining</th>
-              <th className="px-4 py-3 text-right text-white">% Filled</th>
+              <th
+                className="px-4 py-3 text-right text-white cursor-pointer hover:bg-gray-600"
+                onClick={() => handleSort('contracted_bushels')}
+              >
+                Contracted <SortIcon field="contracted_bushels" />
+              </th>
+              <th
+                className="px-4 py-3 text-right text-white cursor-pointer hover:bg-gray-600"
+                onClick={() => handleSort('delivered_bushels')}
+              >
+                Delivered <SortIcon field="delivered_bushels" />
+              </th>
+              <th
+                className="px-4 py-3 text-right text-white cursor-pointer hover:bg-gray-600"
+                onClick={() => handleSort('remaining_bushels')}
+              >
+                Remaining <SortIcon field="remaining_bushels" />
+              </th>
+              <th
+                className="px-4 py-3 text-right text-white cursor-pointer hover:bg-gray-600"
+                onClick={() => handleSort('percent_filled')}
+              >
+                % Filled <SortIcon field="percent_filled" />
+              </th>
               <th className="px-4 py-3 text-center text-white">Actions</th>
             </tr>
           </thead>
           <tbody>
             {contracts.map((contract) => (
               <tr key={contract.id} className="border-t border-gray-700 hover:bg-gray-750">
+                <td className="px-4 py-3">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.has(contract.id)}
+                    onChange={() => toggleSelect(contract.id)}
+                    className="w-4 h-4"
+                  />
+                </td>
                 <td className="px-4 py-3 text-white">{contract.priority}</td>
                 <td className="px-4 py-3 font-semibold text-white">{contract.contract_number}</td>
                 <td className="px-4 py-3 text-white">{contract.crop}</td>
@@ -312,13 +452,13 @@ export function ContractsPage() {
                 <td className="px-4 py-3 text-center">
                   <button
                     onClick={() => openEditModal(contract)}
-                    className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded mr-2"
+                    className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded mr-2 text-sm"
                   >
                     Edit
                   </button>
                   <button
                     onClick={() => handleDelete(contract.id)}
-                    className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded"
+                    className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-sm"
                   >
                     Delete
                   </button>
@@ -331,7 +471,75 @@ export function ContractsPage() {
 
       {contracts.length === 0 && (
         <div className="text-center text-white mt-8">
-          No contracts found for {currentYear}. Create one or change the crop year filter.
+          No contracts for {currentYear}. Create one or change the crop year.
+        </div>
+      )}
+
+      {/* Bulk Edit Modal */}
+      {showBulkEditModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-800 rounded-lg p-6 max-w-md w-full">
+            <h2 className="text-2xl font-bold mb-4 text-white">
+              Bulk Edit {selectedIds.size} Contracts
+            </h2>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1 text-white">Priority (1-10)</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="10"
+                  placeholder="Leave blank to keep current"
+                  value={bulkEditData.priority}
+                  onChange={(e) => setBulkEditData({ ...bulkEditData, priority: e.target.value })}
+                  className="w-full px-3 py-2 bg-gray-700 text-white rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1 text-white">Through</label>
+                <select
+                  value={bulkEditData.through}
+                  onChange={(e) => setBulkEditData({ ...bulkEditData, through: e.target.value })}
+                  className="w-full px-3 py-2 bg-gray-700 text-white rounded-lg"
+                >
+                  <option value="">Keep current</option>
+                  <option value="Akron">Akron</option>
+                  <option value="RVC">RVC</option>
+                  <option value="Cargill">Cargill</option>
+                  <option value="Any">Any</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1 text-white">Crop Year</label>
+                <select
+                  value={bulkEditData.crop_year}
+                  onChange={(e) => setBulkEditData({ ...bulkEditData, crop_year: e.target.value })}
+                  className="w-full px-3 py-2 bg-gray-700 text-white rounded-lg"
+                >
+                  <option value="">Keep current</option>
+                  <option value="2024">2024</option>
+                  <option value="2025">2025</option>
+                  <option value="2026">2026</option>
+                  <option value="2027">2027</option>
+                  <option value="2028">2028</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 mt-6">
+              <button
+                onClick={() => setShowBulkEditModal(false)}
+                className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleBulkEdit}
+                className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg"
+              >
+                Update Selected
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -460,7 +668,7 @@ export function ContractsPage() {
                     id="overfill"
                     checked={formData.overfill_allowed}
                     onChange={(e) => setFormData({ ...formData, overfill_allowed: e.target.checked })}
-                    className="mr-2"
+                    className="mr-2 w-4 h-4"
                   />
                   <label htmlFor="overfill" className="text-sm font-medium text-white">
                     Overfill Allowed
@@ -504,36 +712,49 @@ export function ContractsPage() {
             <h2 className="text-2xl font-bold mb-4 text-white">Import Contracts from Excel</h2>
 
             <div className="mb-4">
-              <p className="text-gray-300 mb-2">
-                Upload an Excel file (.xlsx or .xls) with these exact column headers:
+              <p className="text-white mb-2 font-bold text-lg">
+                📋 EXACT COLUMN HEADERS REQUIRED (case-sensitive):
               </p>
               <div className="bg-gray-700 p-3 rounded mb-4 overflow-x-auto">
-                <table className="text-sm text-white">
+                <table className="text-sm text-white w-full border-collapse">
                   <thead>
-                    <tr className="border-b border-gray-600">
-                      <th className="px-2 py-1 text-left">Owner</th>
-                      <th className="px-2 py-1 text-left">Buyer</th>
-                      <th className="px-2 py-1 text-left">Destination</th>
-                      <th className="px-2 py-1 text-left">Contract#</th>
-                      <th className="px-2 py-1 text-left">Crop</th>
-                      <th className="px-2 py-1 text-left">Bushels</th>
-                      <th className="px-2 py-1 text-left">Window Start</th>
-                      <th className="px-2 py-1 text-left">Window End</th>
+                    <tr className="border-b-2 border-gray-500">
+                      <th className="px-2 py-2 text-left border-r border-gray-600">Owner</th>
+                      <th className="px-2 py-2 text-left border-r border-gray-600">Buyer</th>
+                      <th className="px-2 py-2 text-left border-r border-gray-600">Destination</th>
+                      <th className="px-2 py-2 text-left border-r border-gray-600">Contract#</th>
+                      <th className="px-2 py-2 text-left border-r border-gray-600">Crop</th>
+                      <th className="px-2 py-2 text-left border-r border-gray-600">Bushels</th>
+                      <th className="px-2 py-2 text-left border-r border-gray-600">Window Start</th>
+                      <th className="px-2 py-2 text-left border-r border-gray-600">Window End</th>
+                      <th className="px-2 py-2 text-left">Year</th>
                     </tr>
                   </thead>
                   <tbody>
-                    <tr className="text-gray-400">
-                      <td className="px-2 py-1">Ethan</td>
-                      <td className="px-2 py-1">ADM</td>
-                      <td className="px-2 py-1">Chicago</td>
-                      <td className="px-2 py-1">8992</td>
-                      <td className="px-2 py-1">Corn</td>
-                      <td className="px-2 py-1">10000</td>
-                      <td className="px-2 py-1">01/01/2026</td>
-                      <td className="px-2 py-1">01/31/2026</td>
+                    <tr className="text-gray-300 text-xs">
+                      <td className="px-2 py-2 border-r border-gray-600">Anthony</td>
+                      <td className="px-2 py-2 border-r border-gray-600">RVC</td>
+                      <td className="px-2 py-2 border-r border-gray-600">Cargill-Lacon</td>
+                      <td className="px-2 py-2 border-r border-gray-600">8992</td>
+                      <td className="px-2 py-2 border-r border-gray-600">Corn</td>
+                      <td className="px-2 py-2 border-r border-gray-600">10000</td>
+                      <td className="px-2 py-2 border-r border-gray-600">01/01/2026</td>
+                      <td className="px-2 py-2 border-r border-gray-600">01/31/2026</td>
+                      <td className="px-2 py-2">2025</td>
                     </tr>
                   </tbody>
                 </table>
+              </div>
+
+              <div className="bg-red-900 border-2 border-red-600 rounded p-4 mb-4">
+                <p className="text-red-100 font-bold mb-2">⚠️ CRITICAL RULES:</p>
+                <ul className="text-red-100 text-sm space-y-1 list-disc list-inside">
+                  <li><strong>Contract#</strong> — NO SPACE before the # symbol (must be exact)</li>
+                  <li><strong>Year</strong> — Crop year (2025 for 2025-26 season, NOT 2026)</li>
+                  <li><strong>Dates</strong> — Any format works (Excel converts automatically)</li>
+                  <li><strong>Owner</strong> — Saved in notes for reference only</li>
+                  <li><strong>Price, Delivered, Status columns</strong> — Can be in your Excel but are ignored</li>
+                </ul>
               </div>
 
               <input
@@ -541,42 +762,44 @@ export function ContractsPage() {
                 accept=".xlsx,.xls"
                 onChange={handleFileSelect}
                 className="block w-full text-sm text-gray-300
-                  file:mr-4 file:py-2 file:px-4
+                  file:mr-4 file:py-3 file:px-6
                   file:rounded-lg file:border-0
-                  file:text-sm file:font-semibold
+                  file:text-sm file:font-bold
                   file:bg-blue-600 file:text-white
-                  hover:file:bg-blue-700"
+                  hover:file:bg-blue-700 file:cursor-pointer"
               />
             </div>
 
             {importPreview.length > 0 && (
               <div className="mb-4">
-                <h3 className="font-semibold mb-2 text-white">Preview ({importPreview.length} contracts)</h3>
-                <div className="overflow-x-auto max-h-96">
+                <h3 className="font-semibold mb-2 text-white text-lg">✅ Preview ({importPreview.length} contracts)</h3>
+                <div className="overflow-x-auto max-h-96 border border-gray-600 rounded">
                   <table className="w-full text-sm">
                     <thead className="bg-gray-700 sticky top-0">
                       <tr>
-                        <th className="px-3 py-2 text-left text-white">Contract #</th>
-                        <th className="px-3 py-2 text-left text-white">Crop</th>
-                        <th className="px-3 py-2 text-left text-white">Buyer</th>
-                        <th className="px-3 py-2 text-left text-white">Destination</th>
-                        <th className="px-3 py-2 text-right text-white">Bushels</th>
-                        <th className="px-3 py-2 text-left text-white">Start</th>
-                        <th className="px-3 py-2 text-left text-white">End</th>
+                        <th className="px-3 py-2 text-left text-white border-r border-gray-600">Contract #</th>
+                        <th className="px-3 py-2 text-left text-white border-r border-gray-600">Crop</th>
+                        <th className="px-3 py-2 text-left text-white border-r border-gray-600">Buyer</th>
+                        <th className="px-3 py-2 text-left text-white border-r border-gray-600">Destination</th>
+                        <th className="px-3 py-2 text-right text-white border-r border-gray-600">Bushels</th>
+                        <th className="px-3 py-2 text-left text-white border-r border-gray-600">Start</th>
+                        <th className="px-3 py-2 text-left text-white border-r border-gray-600">End</th>
+                        <th className="px-3 py-2 text-left text-white">Year</th>
                       </tr>
                     </thead>
                     <tbody>
                       {importPreview.map((contract, idx) => (
-                        <tr key={idx} className="border-t border-gray-700">
-                          <td className="px-3 py-2 text-white">{contract.contract_number}</td>
-                          <td className="px-3 py-2 text-white">{contract.crop}</td>
-                          <td className="px-3 py-2 text-white">{contract.buyer}</td>
-                          <td className="px-3 py-2 text-white">{contract.destination}</td>
-                          <td className="px-3 py-2 text-right text-white">
+                        <tr key={idx} className="border-t border-gray-700 hover:bg-gray-750">
+                          <td className="px-3 py-2 text-white border-r border-gray-600">{contract.contract_number}</td>
+                          <td className="px-3 py-2 text-white border-r border-gray-600">{contract.crop}</td>
+                          <td className="px-3 py-2 text-white border-r border-gray-600">{contract.buyer}</td>
+                          <td className="px-3 py-2 text-white border-r border-gray-600">{contract.destination}</td>
+                          <td className="px-3 py-2 text-right text-white border-r border-gray-600">
                             {contract.contracted_bushels.toLocaleString()}
                           </td>
-                          <td className="px-3 py-2 text-white">{contract.start_date || '-'}</td>
-                          <td className="px-3 py-2 text-white">{contract.end_date || '-'}</td>
+                          <td className="px-3 py-2 text-white border-r border-gray-600">{contract.start_date || '-'}</td>
+                          <td className="px-3 py-2 text-white border-r border-gray-600">{contract.end_date || '-'}</td>
+                          <td className="px-3 py-2 text-white">{contract.crop_year}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -592,16 +815,16 @@ export function ContractsPage() {
                   setImportFile(null);
                   setImportPreview([]);
                 }}
-                className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg"
+                className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-semibold"
               >
                 Cancel
               </button>
               <button
                 onClick={handleImport}
                 disabled={importPreview.length === 0 || importing}
-                className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-bold disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {importing ? 'Importing...' : `Import ${importPreview.length} Contracts`}
+                {importing ? 'Importing...' : `Import ${importPreview.length} Contracts →`}
               </button>
             </div>
           </div>
