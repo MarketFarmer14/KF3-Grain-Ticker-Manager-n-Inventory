@@ -28,6 +28,7 @@ export function ContractsPage() {
     priority: 5,
     overfill_allowed: true,
     notes: '',
+    crop_year: '',
   });
 
   const currentYear = localStorage.getItem('grain_ticket_year') || new Date().getFullYear().toString();
@@ -91,11 +92,11 @@ export function ContractsPage() {
         const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
         const jsonData = XLSX.utils.sheet_to_json(firstSheet);
 
-        // Map Excel columns to match your layout:
-        // Owner | Elevator/Buyer | Contract# | Crop | Bushels | Price | Window Start | Window End | Delivered | Status
+        // Map Excel columns: Owner | Buyer | Destination | Contract# | Crop | Bushels | Window Start | Window End
         const mapped = jsonData.map((row: any) => {
           const owner = row['Owner'] || '';
-          const elevatorBuyer = row['Elevator/Buyer'] || '';
+          const buyer = row['Buyer'] || '';
+          const destination = row['Destination'] || '';
           const contractNum = row['Contract#'] || '';
           const crop = row['Crop'] || '';
           const bushels = parseFloat(row['Bushels'] || '0');
@@ -111,14 +112,14 @@ export function ContractsPage() {
           return {
             contract_number: contractNum.toString(),
             crop: crop,
-            buyer: owner, // "Owner" maps to "buyer" field (who owns the contract)
-            destination: elevatorBuyer, // "Elevator/Buyer" maps to destination
-            through: 'Any', // Default, can be overridden
+            buyer: buyer, // "Buyer" column
+            destination: destination, // "Destination" column
+            through: 'Any', // Default
             contracted_bushels: bushels,
             start_date: windowStart,
             end_date: windowEnd,
-            priority: 5, // Default priority
-            notes: `Imported from Excel`,
+            priority: 5,
+            notes: owner ? `Owner: ${owner}` : '', // Store Owner in notes if needed
           };
         });
 
@@ -168,7 +169,7 @@ export function ContractsPage() {
 
     const dataToSave: ContractInsert = {
       ...formData,
-      crop_year: currentYear,
+      crop_year: formData.crop_year || currentYear,
       contract_number: formData.contract_number!,
       crop: formData.crop!,
       destination: formData.destination!,
@@ -227,6 +228,7 @@ export function ContractsPage() {
       priority: 5,
       overfill_allowed: true,
       notes: '',
+      crop_year: currentYear,
     });
   };
 
@@ -244,18 +246,19 @@ export function ContractsPage() {
       priority: contract.priority,
       overfill_allowed: contract.overfill_allowed,
       notes: contract.notes || '',
+      crop_year: contract.crop_year,
     });
     setShowModal(true);
   };
 
   if (loading) {
-    return <div className="p-8 text-center">Loading contracts...</div>;
+    return <div className="p-8 text-center text-white">Loading contracts...</div>;
   }
 
   return (
     <div className="p-4 md:p-8">
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold">Contracts</h1>
+        <h1 className="text-3xl font-bold text-white">Contracts</h1>
         <div className="flex gap-2">
           <button
             onClick={() => {
@@ -280,42 +283,42 @@ export function ContractsPage() {
         <table className="w-full bg-gray-800 rounded-lg">
           <thead className="bg-gray-700">
             <tr>
-              <th className="px-4 py-3 text-left">Priority</th>
-              <th className="px-4 py-3 text-left">Contract #</th>
-              <th className="px-4 py-3 text-left">Crop</th>
-              <th className="px-4 py-3 text-left">Buyer</th>
-              <th className="px-4 py-3 text-left">Destination</th>
-              <th className="px-4 py-3 text-left">Through</th>
-              <th className="px-4 py-3 text-right">Contracted</th>
-              <th className="px-4 py-3 text-right">Delivered</th>
-              <th className="px-4 py-3 text-right">Remaining</th>
-              <th className="px-4 py-3 text-right">% Filled</th>
-              <th className="px-4 py-3 text-center">Actions</th>
+              <th className="px-4 py-3 text-left text-white">Priority</th>
+              <th className="px-4 py-3 text-left text-white">Contract #</th>
+              <th className="px-4 py-3 text-left text-white">Crop</th>
+              <th className="px-4 py-3 text-left text-white">Buyer</th>
+              <th className="px-4 py-3 text-left text-white">Destination</th>
+              <th className="px-4 py-3 text-left text-white">Through</th>
+              <th className="px-4 py-3 text-right text-white">Contracted</th>
+              <th className="px-4 py-3 text-right text-white">Delivered</th>
+              <th className="px-4 py-3 text-right text-white">Remaining</th>
+              <th className="px-4 py-3 text-right text-white">% Filled</th>
+              <th className="px-4 py-3 text-center text-white">Actions</th>
             </tr>
           </thead>
           <tbody>
             {contracts.map((contract) => (
               <tr key={contract.id} className="border-t border-gray-700 hover:bg-gray-750">
-                <td className="px-4 py-3">{contract.priority}</td>
-                <td className="px-4 py-3 font-semibold">{contract.contract_number}</td>
-                <td className="px-4 py-3">{contract.crop}</td>
-                <td className="px-4 py-3">{contract.buyer || '-'}</td>
-                <td className="px-4 py-3">{contract.destination}</td>
-                <td className="px-4 py-3">{contract.through || 'Any'}</td>
-                <td className="px-4 py-3 text-right">{contract.contracted_bushels.toLocaleString()}</td>
-                <td className="px-4 py-3 text-right">{contract.delivered_bushels.toLocaleString()}</td>
-                <td className="px-4 py-3 text-right">{contract.remaining_bushels.toLocaleString()}</td>
-                <td className="px-4 py-3 text-right">{contract.percent_filled?.toFixed(1)}%</td>
+                <td className="px-4 py-3 text-white">{contract.priority}</td>
+                <td className="px-4 py-3 font-semibold text-white">{contract.contract_number}</td>
+                <td className="px-4 py-3 text-white">{contract.crop}</td>
+                <td className="px-4 py-3 text-white">{contract.buyer || '-'}</td>
+                <td className="px-4 py-3 text-white">{contract.destination}</td>
+                <td className="px-4 py-3 text-white">{contract.through || 'Any'}</td>
+                <td className="px-4 py-3 text-right text-white">{contract.contracted_bushels.toLocaleString()}</td>
+                <td className="px-4 py-3 text-right text-white">{contract.delivered_bushels.toLocaleString()}</td>
+                <td className="px-4 py-3 text-right text-white">{contract.remaining_bushels.toLocaleString()}</td>
+                <td className="px-4 py-3 text-right text-white">{contract.percent_filled?.toFixed(1)}%</td>
                 <td className="px-4 py-3 text-center">
                   <button
                     onClick={() => openEditModal(contract)}
-                    className="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded mr-2"
+                    className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded mr-2"
                   >
                     Edit
                   </button>
                   <button
                     onClick={() => handleDelete(contract.id)}
-                    className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded"
+                    className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded"
                   >
                     Delete
                   </button>
@@ -326,60 +329,66 @@ export function ContractsPage() {
         </table>
       </div>
 
+      {contracts.length === 0 && (
+        <div className="text-center text-white mt-8">
+          No contracts found for {currentYear}. Create one or change the crop year filter.
+        </div>
+      )}
+
       {/* Create/Edit Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-gray-800 rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <h2 className="text-2xl font-bold mb-4">
+            <h2 className="text-2xl font-bold mb-4 text-white">
               {editingContract ? 'Edit Contract' : 'New Contract'}
             </h2>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium mb-1">Contract Number *</label>
+                  <label className="block text-sm font-medium mb-1 text-white">Contract Number *</label>
                   <input
                     type="text"
                     required
                     value={formData.contract_number}
                     onChange={(e) => setFormData({ ...formData, contract_number: e.target.value })}
-                    className="w-full px-3 py-2 bg-gray-700 rounded-lg"
+                    className="w-full px-3 py-2 bg-gray-700 text-white rounded-lg"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1">Crop *</label>
+                  <label className="block text-sm font-medium mb-1 text-white">Crop *</label>
                   <input
                     type="text"
                     required
                     value={formData.crop}
                     onChange={(e) => setFormData({ ...formData, crop: e.target.value })}
-                    className="w-full px-3 py-2 bg-gray-700 rounded-lg"
+                    className="w-full px-3 py-2 bg-gray-700 text-white rounded-lg"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1">Buyer/Owner</label>
+                  <label className="block text-sm font-medium mb-1 text-white">Buyer</label>
                   <input
                     type="text"
                     value={formData.buyer}
                     onChange={(e) => setFormData({ ...formData, buyer: e.target.value })}
-                    className="w-full px-3 py-2 bg-gray-700 rounded-lg"
+                    className="w-full px-3 py-2 bg-gray-700 text-white rounded-lg"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1">Destination *</label>
+                  <label className="block text-sm font-medium mb-1 text-white">Destination *</label>
                   <input
                     type="text"
                     required
                     value={formData.destination}
                     onChange={(e) => setFormData({ ...formData, destination: e.target.value })}
-                    className="w-full px-3 py-2 bg-gray-700 rounded-lg"
+                    className="w-full px-3 py-2 bg-gray-700 text-white rounded-lg"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1">Through</label>
+                  <label className="block text-sm font-medium mb-1 text-white">Through</label>
                   <select
                     value={formData.through}
                     onChange={(e) => setFormData({ ...formData, through: e.target.value })}
-                    className="w-full px-3 py-2 bg-gray-700 rounded-lg"
+                    className="w-full px-3 py-2 bg-gray-700 text-white rounded-lg"
                   >
                     <option value="Akron">Akron</option>
                     <option value="RVC">RVC</option>
@@ -388,7 +397,7 @@ export function ContractsPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1">Contracted Bushels *</label>
+                  <label className="block text-sm font-medium mb-1 text-white">Contracted Bushels *</label>
                   <input
                     type="number"
                     required
@@ -397,36 +406,52 @@ export function ContractsPage() {
                     onChange={(e) =>
                       setFormData({ ...formData, contracted_bushels: parseFloat(e.target.value) })
                     }
-                    className="w-full px-3 py-2 bg-gray-700 rounded-lg"
+                    className="w-full px-3 py-2 bg-gray-700 text-white rounded-lg"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1">Start Date</label>
-                  <input
-                    type="date"
-                    value={formData.start_date || ''}
-                    onChange={(e) => setFormData({ ...formData, start_date: e.target.value })}
-                    className="w-full px-3 py-2 bg-gray-700 rounded-lg"
-                  />
+                  <label className="block text-sm font-medium mb-1 text-white">Crop Year *</label>
+                  <select
+                    required
+                    value={formData.crop_year}
+                    onChange={(e) => setFormData({ ...formData, crop_year: e.target.value })}
+                    className="w-full px-3 py-2 bg-gray-700 text-white rounded-lg"
+                  >
+                    <option value="">Select Year</option>
+                    <option value="2024">2024</option>
+                    <option value="2025">2025</option>
+                    <option value="2026">2026</option>
+                    <option value="2027">2027</option>
+                    <option value="2028">2028</option>
+                  </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1">End Date</label>
-                  <input
-                    type="date"
-                    value={formData.end_date || ''}
-                    onChange={(e) => setFormData({ ...formData, end_date: e.target.value })}
-                    className="w-full px-3 py-2 bg-gray-700 rounded-lg"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Priority (1-10)</label>
+                  <label className="block text-sm font-medium mb-1 text-white">Priority (1-10)</label>
                   <input
                     type="number"
                     min="1"
                     max="10"
                     value={formData.priority}
                     onChange={(e) => setFormData({ ...formData, priority: parseInt(e.target.value) })}
-                    className="w-full px-3 py-2 bg-gray-700 rounded-lg"
+                    className="w-full px-3 py-2 bg-gray-700 text-white rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1 text-white">Start Date</label>
+                  <input
+                    type="date"
+                    value={formData.start_date || ''}
+                    onChange={(e) => setFormData({ ...formData, start_date: e.target.value })}
+                    className="w-full px-3 py-2 bg-gray-700 text-white rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1 text-white">End Date</label>
+                  <input
+                    type="date"
+                    value={formData.end_date || ''}
+                    onChange={(e) => setFormData({ ...formData, end_date: e.target.value })}
+                    className="w-full px-3 py-2 bg-gray-700 text-white rounded-lg"
                   />
                 </div>
                 <div className="flex items-center">
@@ -437,17 +462,17 @@ export function ContractsPage() {
                     onChange={(e) => setFormData({ ...formData, overfill_allowed: e.target.checked })}
                     className="mr-2"
                   />
-                  <label htmlFor="overfill" className="text-sm font-medium">
+                  <label htmlFor="overfill" className="text-sm font-medium text-white">
                     Overfill Allowed
                   </label>
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">Notes</label>
+                <label className="block text-sm font-medium mb-1 text-white">Notes</label>
                 <textarea
                   value={formData.notes}
                   onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                  className="w-full px-3 py-2 bg-gray-700 rounded-lg"
+                  className="w-full px-3 py-2 bg-gray-700 text-white rounded-lg"
                   rows={3}
                 />
               </div>
@@ -459,11 +484,11 @@ export function ContractsPage() {
                     setEditingContract(null);
                     resetForm();
                   }}
-                  className="px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded-lg"
+                  className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg"
                 >
                   Cancel
                 </button>
-                <button type="submit" className="px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg">
+                <button type="submit" className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg">
                   {editingContract ? 'Update' : 'Create'}
                 </button>
               </div>
@@ -476,18 +501,19 @@ export function ContractsPage() {
       {showImportModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-gray-800 rounded-lg p-6 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-            <h2 className="text-2xl font-bold mb-4">Import Contracts from Excel</h2>
+            <h2 className="text-2xl font-bold mb-4 text-white">Import Contracts from Excel</h2>
 
             <div className="mb-4">
               <p className="text-gray-300 mb-2">
                 Upload an Excel file (.xlsx or .xls) with these exact column headers:
               </p>
               <div className="bg-gray-700 p-3 rounded mb-4 overflow-x-auto">
-                <table className="text-sm">
+                <table className="text-sm text-white">
                   <thead>
                     <tr className="border-b border-gray-600">
                       <th className="px-2 py-1 text-left">Owner</th>
-                      <th className="px-2 py-1 text-left">Elevator/Buyer</th>
+                      <th className="px-2 py-1 text-left">Buyer</th>
+                      <th className="px-2 py-1 text-left">Destination</th>
                       <th className="px-2 py-1 text-left">Contract#</th>
                       <th className="px-2 py-1 text-left">Crop</th>
                       <th className="px-2 py-1 text-left">Bushels</th>
@@ -497,8 +523,9 @@ export function ContractsPage() {
                   </thead>
                   <tbody>
                     <tr className="text-gray-400">
-                      <td className="px-2 py-1">Anthony</td>
-                      <td className="px-2 py-1">RVC</td>
+                      <td className="px-2 py-1">Ethan</td>
+                      <td className="px-2 py-1">ADM</td>
+                      <td className="px-2 py-1">Chicago</td>
                       <td className="px-2 py-1">8992</td>
                       <td className="px-2 py-1">Corn</td>
                       <td className="px-2 py-1">10000</td>
@@ -524,32 +551,32 @@ export function ContractsPage() {
 
             {importPreview.length > 0 && (
               <div className="mb-4">
-                <h3 className="font-semibold mb-2">Preview ({importPreview.length} contracts)</h3>
+                <h3 className="font-semibold mb-2 text-white">Preview ({importPreview.length} contracts)</h3>
                 <div className="overflow-x-auto max-h-96">
                   <table className="w-full text-sm">
                     <thead className="bg-gray-700 sticky top-0">
                       <tr>
-                        <th className="px-3 py-2 text-left">Contract #</th>
-                        <th className="px-3 py-2 text-left">Crop</th>
-                        <th className="px-3 py-2 text-left">Owner</th>
-                        <th className="px-3 py-2 text-left">Destination</th>
-                        <th className="px-3 py-2 text-right">Bushels</th>
-                        <th className="px-3 py-2 text-left">Start</th>
-                        <th className="px-3 py-2 text-left">End</th>
+                        <th className="px-3 py-2 text-left text-white">Contract #</th>
+                        <th className="px-3 py-2 text-left text-white">Crop</th>
+                        <th className="px-3 py-2 text-left text-white">Buyer</th>
+                        <th className="px-3 py-2 text-left text-white">Destination</th>
+                        <th className="px-3 py-2 text-right text-white">Bushels</th>
+                        <th className="px-3 py-2 text-left text-white">Start</th>
+                        <th className="px-3 py-2 text-left text-white">End</th>
                       </tr>
                     </thead>
                     <tbody>
                       {importPreview.map((contract, idx) => (
                         <tr key={idx} className="border-t border-gray-700">
-                          <td className="px-3 py-2">{contract.contract_number}</td>
-                          <td className="px-3 py-2">{contract.crop}</td>
-                          <td className="px-3 py-2">{contract.buyer}</td>
-                          <td className="px-3 py-2">{contract.destination}</td>
-                          <td className="px-3 py-2 text-right">
+                          <td className="px-3 py-2 text-white">{contract.contract_number}</td>
+                          <td className="px-3 py-2 text-white">{contract.crop}</td>
+                          <td className="px-3 py-2 text-white">{contract.buyer}</td>
+                          <td className="px-3 py-2 text-white">{contract.destination}</td>
+                          <td className="px-3 py-2 text-right text-white">
                             {contract.contracted_bushels.toLocaleString()}
                           </td>
-                          <td className="px-3 py-2">{contract.start_date || '-'}</td>
-                          <td className="px-3 py-2">{contract.end_date || '-'}</td>
+                          <td className="px-3 py-2 text-white">{contract.start_date || '-'}</td>
+                          <td className="px-3 py-2 text-white">{contract.end_date || '-'}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -565,14 +592,14 @@ export function ContractsPage() {
                   setImportFile(null);
                   setImportPreview([]);
                 }}
-                className="px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded-lg"
+                className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg"
               >
                 Cancel
               </button>
               <button
                 onClick={handleImport}
                 disabled={importPreview.length === 0 || importing}
-                className="px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {importing ? 'Importing...' : `Import ${importPreview.length} Contracts`}
               </button>
