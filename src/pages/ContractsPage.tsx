@@ -52,6 +52,31 @@ export function ContractsPage() {
     setLoading(false);
   };
 
+  // Convert Excel date serial number to YYYY-MM-DD
+  const convertExcelDate = (excelDate: any): string | null => {
+    if (!excelDate) return null;
+
+    // If it's already a string date, return it
+    if (typeof excelDate === 'string') {
+      // Try to parse it as a date
+      const parsed = new Date(excelDate);
+      if (!isNaN(parsed.getTime())) {
+        return parsed.toISOString().split('T')[0];
+      }
+      return null;
+    }
+
+    // If it's an Excel serial number
+    if (typeof excelDate === 'number') {
+      // Excel date system starts at 1900-01-01 (but Excel incorrectly treats 1900 as a leap year)
+      const excelEpoch = new Date(1899, 11, 30); // Dec 30, 1899
+      const jsDate = new Date(excelEpoch.getTime() + excelDate * 86400000); // Add days in milliseconds
+      return jsDate.toISOString().split('T')[0];
+    }
+
+    return null;
+  };
+
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -74,8 +99,14 @@ export function ContractsPage() {
           const contractNum = row['Contract#'] || '';
           const crop = row['Crop'] || '';
           const bushels = parseFloat(row['Bushels'] || '0');
-          const windowStart = row['Window Start'] || null;
-          const windowEnd = row['Window End'] || null;
+
+          // Convert Excel date numbers to YYYY-MM-DD format
+          const windowStart = row['Window Start']
+            ? convertExcelDate(row['Window Start'])
+            : null;
+          const windowEnd = row['Window End']
+            ? convertExcelDate(row['Window End'])
+            : null;
 
           return {
             contract_number: contractNum.toString(),
