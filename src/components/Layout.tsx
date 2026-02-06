@@ -52,13 +52,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
     setCropYear(year);
     localStorage.setItem('grain_ticket_year', year);
     
-    // Broadcast change to other components
-    window.dispatchEvent(new Event('cropYearChanged'));
+    // Trigger a storage event that other components can listen to
+    window.dispatchEvent(new StorageEvent('storage', {
+      key: 'grain_ticket_year',
+      newValue: year,
+      url: window.location.href
+    }));
     
-    // Force re-render of current page
-    const currentPath = location.pathname;
-    navigate(currentPath, { replace: true });
-    window.location.reload(); // Nuclear option - ensures everything updates
+    // Force page refresh without navigation
+    window.location.reload();
   };
 
   const handleLogout = () => {
