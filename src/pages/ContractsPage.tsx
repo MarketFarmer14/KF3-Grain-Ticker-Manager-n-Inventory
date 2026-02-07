@@ -6,7 +6,7 @@ import * as XLSX from 'xlsx';
 type Contract = Database['public']['Tables']['contracts']['Row'];
 type ContractInsert = Database['public']['Tables']['contracts']['Insert'];
 
-type SortField = 'priority' | 'contract_number' | 'crop' | 'buyer' | 'destination' | 'contracted_bushels' | 'delivered_bushels' | 'remaining_bushels' | 'percent_filled';
+type SortField = 'priority' | 'contract_number' | 'crop' | 'owner' | 'buyer' | 'destination' | 'contracted_bushels' | 'delivered_bushels' | 'remaining_bushels' | 'percent_filled';
 type SortDirection = 'asc' | 'desc';
 
 export function ContractsPage() {
@@ -26,6 +26,7 @@ export function ContractsPage() {
   const [formData, setFormData] = useState<Partial<ContractInsert>>({
     contract_number: '',
     crop: '',
+    owner: '',
     buyer: '',
     destination: '',
     through: 'Any',
@@ -42,6 +43,11 @@ export function ContractsPage() {
     priority: '',
     through: '',
     crop_year: '',
+    owner: '',
+    buyer: '',
+    destination: '',
+    start_date: '',
+    end_date: '',
   });
 
   const currentYear = localStorage.getItem('grain_ticket_year') || new Date().getFullYear().toString();
@@ -100,6 +106,11 @@ export function ContractsPage() {
     if (bulkEditData.priority) updates.priority = parseInt(bulkEditData.priority);
     if (bulkEditData.through) updates.through = bulkEditData.through;
     if (bulkEditData.crop_year) updates.crop_year = bulkEditData.crop_year;
+    if (bulkEditData.owner) updates.owner = bulkEditData.owner;
+    if (bulkEditData.buyer) updates.buyer = bulkEditData.buyer;
+    if (bulkEditData.destination) updates.destination = bulkEditData.destination;
+    if (bulkEditData.start_date) updates.start_date = bulkEditData.start_date;
+    if (bulkEditData.end_date) updates.end_date = bulkEditData.end_date;
 
     if (Object.keys(updates).length === 0) {
       alert('Please select at least one field to update');
@@ -117,7 +128,7 @@ export function ContractsPage() {
       alert(`Updated ${selectedIds.size} contracts`);
       setShowBulkEditModal(false);
       setSelectedIds(new Set());
-      setBulkEditData({ priority: '', through: '', crop_year: '' });
+      setBulkEditData({ priority: '', through: '', crop_year: '', owner: '', buyer: '', destination: '', start_date: '', end_date: '' });
       fetchContracts();
     } catch (error: any) {
       alert('Bulk edit failed: ' + error.message);
@@ -175,20 +186,20 @@ export function ContractsPage() {
         const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
         const jsonData = XLSX.utils.sheet_to_json(firstSheet);
 
-        // Map to exact screenshot layout: Owner | Buyer | Destination | Contract# | Crop | Bushels | Price | Window Start | Window End | Year | Delivered | Status
         const mapped = jsonData.map((row: any) => {
           return {
             contract_number: (row['Contract#'] || '').toString(),
             crop: row['Crop'] || '',
+            owner: row['Owner'] || '',
             buyer: row['Buyer'] || '',
             destination: row['Destination'] || '',
-            through: 'Any', // Not in import, set default
+            through: 'Any',
             contracted_bushels: parseFloat(row['Bushels'] || '0'),
             start_date: convertExcelDate(row['Window Start']),
             end_date: convertExcelDate(row['Window End']),
-            priority: 5, // Default
+            priority: 5,
             crop_year: row['Year'] || currentYear,
-            notes: row['Owner'] ? `Owner: ${row['Owner']}` : '',
+            notes: '',
           };
         });
 
@@ -277,6 +288,7 @@ export function ContractsPage() {
     setFormData({
       contract_number: '',
       crop: '',
+      owner: '',
       buyer: '',
       destination: '',
       through: 'Any',
@@ -295,6 +307,7 @@ export function ContractsPage() {
     setFormData({
       contract_number: contract.contract_number,
       crop: contract.crop,
+      owner: contract.owner || '',
       buyer: contract.buyer || '',
       destination: contract.destination,
       through: contract.through || 'Any',
@@ -378,6 +391,12 @@ export function ContractsPage() {
               </th>
               <th
                 className="px-4 py-3 text-left text-white cursor-pointer hover:bg-gray-600"
+                onClick={() => handleSort('owner')}
+              >
+                Owner <SortIcon field="owner" />
+              </th>
+              <th
+                className="px-4 py-3 text-left text-white cursor-pointer hover:bg-gray-600"
                 onClick={() => handleSort('contract_number')}
               >
                 Contract # <SortIcon field="contract_number" />
@@ -440,6 +459,7 @@ export function ContractsPage() {
                   />
                 </td>
                 <td className="px-4 py-3 text-white">{contract.priority}</td>
+                <td className="px-4 py-3 text-white">{contract.owner || '-'}</td>
                 <td className="px-4 py-3 font-semibold text-white">{contract.contract_number}</td>
                 <td className="px-4 py-3 text-white">{contract.crop}</td>
                 <td className="px-4 py-3 text-white">{contract.buyer || '-'}</td>
@@ -478,11 +498,11 @@ export function ContractsPage() {
       {/* Bulk Edit Modal */}
       {showBulkEditModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-800 rounded-lg p-6 max-w-md w-full">
+          <div className="bg-gray-800 rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <h2 className="text-2xl font-bold mb-4 text-white">
               Bulk Edit {selectedIds.size} Contracts
             </h2>
-            <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium mb-1 text-white">Priority (1-10)</label>
                 <input
@@ -523,6 +543,54 @@ export function ContractsPage() {
                   <option value="2027">2027</option>
                   <option value="2028">2028</option>
                 </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1 text-white">Owner</label>
+                <input
+                  type="text"
+                  placeholder="Leave blank to keep current"
+                  value={bulkEditData.owner}
+                  onChange={(e) => setBulkEditData({ ...bulkEditData, owner: e.target.value })}
+                  className="w-full px-3 py-2 bg-gray-700 text-white rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1 text-white">Buyer</label>
+                <input
+                  type="text"
+                  placeholder="Leave blank to keep current"
+                  value={bulkEditData.buyer}
+                  onChange={(e) => setBulkEditData({ ...bulkEditData, buyer: e.target.value })}
+                  className="w-full px-3 py-2 bg-gray-700 text-white rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1 text-white">Destination</label>
+                <input
+                  type="text"
+                  placeholder="Leave blank to keep current"
+                  value={bulkEditData.destination}
+                  onChange={(e) => setBulkEditData({ ...bulkEditData, destination: e.target.value })}
+                  className="w-full px-3 py-2 bg-gray-700 text-white rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1 text-white">Window Start</label>
+                <input
+                  type="date"
+                  value={bulkEditData.start_date}
+                  onChange={(e) => setBulkEditData({ ...bulkEditData, start_date: e.target.value })}
+                  className="w-full px-3 py-2 bg-gray-700 text-white rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1 text-white">Window End</label>
+                <input
+                  type="date"
+                  value={bulkEditData.end_date}
+                  onChange={(e) => setBulkEditData({ ...bulkEditData, end_date: e.target.value })}
+                  className="w-full px-3 py-2 bg-gray-700 text-white rounded-lg"
+                />
               </div>
             </div>
             <div className="flex justify-end gap-2 mt-6">
@@ -569,6 +637,15 @@ export function ContractsPage() {
                     required
                     value={formData.crop}
                     onChange={(e) => setFormData({ ...formData, crop: e.target.value })}
+                    className="w-full px-3 py-2 bg-gray-700 text-white rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1 text-white">Owner</label>
+                  <input
+                    type="text"
+                    value={formData.owner}
+                    onChange={(e) => setFormData({ ...formData, owner: e.target.value })}
                     className="w-full px-3 py-2 bg-gray-700 text-white rounded-lg"
                   />
                 </div>
@@ -713,7 +790,7 @@ export function ContractsPage() {
 
             <div className="mb-4">
               <p className="text-white mb-2 font-bold text-lg">
-                📋 EXACT COLUMN HEADERS REQUIRED (case-sensitive):
+                📋 EXACT COLUMN HEADERS REQUIRED:
               </p>
               <div className="bg-gray-700 p-3 rounded mb-4 overflow-x-auto">
                 <table className="text-sm text-white w-full border-collapse">
@@ -749,11 +826,10 @@ export function ContractsPage() {
               <div className="bg-red-900 border-2 border-red-600 rounded p-4 mb-4">
                 <p className="text-red-100 font-bold mb-2">⚠️ CRITICAL RULES:</p>
                 <ul className="text-red-100 text-sm space-y-1 list-disc list-inside">
-                  <li><strong>Contract#</strong> — NO SPACE before the # symbol (must be exact)</li>
-                  <li><strong>Year</strong> — Crop year (2025 for 2025-26 season, NOT 2026)</li>
-                  <li><strong>Dates</strong> — Any format works (Excel converts automatically)</li>
-                  <li><strong>Owner</strong> — Saved in notes for reference only</li>
-                  <li><strong>Price, Delivered, Status columns</strong> — Can be in your Excel but are ignored</li>
+                  <li><strong>Contract#</strong> — NO SPACE before the # symbol</li>
+                  <li><strong>Year</strong> — Crop year (2025 for 2025-26 season)</li>
+                  <li><strong>Dates</strong> — Any format (Excel auto-converts)</li>
+                  <li><strong>Price, Delivered, Status columns</strong> — Ignored if present</li>
                 </ul>
               </div>
 
@@ -772,33 +848,31 @@ export function ContractsPage() {
 
             {importPreview.length > 0 && (
               <div className="mb-4">
-                <h3 className="font-semibold mb-2 text-white text-lg">✅ Preview ({importPreview.length} contracts)</h3>
+                <h3 className="font-semibold mb-2 text-white text-lg">Preview ({importPreview.length} contracts)</h3>
                 <div className="overflow-x-auto max-h-96 border border-gray-600 rounded">
                   <table className="w-full text-sm">
                     <thead className="bg-gray-700 sticky top-0">
                       <tr>
-                        <th className="px-3 py-2 text-left text-white border-r border-gray-600">Contract #</th>
-                        <th className="px-3 py-2 text-left text-white border-r border-gray-600">Crop</th>
-                        <th className="px-3 py-2 text-left text-white border-r border-gray-600">Buyer</th>
-                        <th className="px-3 py-2 text-left text-white border-r border-gray-600">Destination</th>
-                        <th className="px-3 py-2 text-right text-white border-r border-gray-600">Bushels</th>
-                        <th className="px-3 py-2 text-left text-white border-r border-gray-600">Start</th>
-                        <th className="px-3 py-2 text-left text-white border-r border-gray-600">End</th>
+                        <th className="px-3 py-2 text-left text-white">Owner</th>
+                        <th className="px-3 py-2 text-left text-white">Contract #</th>
+                        <th className="px-3 py-2 text-left text-white">Crop</th>
+                        <th className="px-3 py-2 text-left text-white">Buyer</th>
+                        <th className="px-3 py-2 text-left text-white">Destination</th>
+                        <th className="px-3 py-2 text-right text-white">Bushels</th>
                         <th className="px-3 py-2 text-left text-white">Year</th>
                       </tr>
                     </thead>
                     <tbody>
                       {importPreview.map((contract, idx) => (
-                        <tr key={idx} className="border-t border-gray-700 hover:bg-gray-750">
-                          <td className="px-3 py-2 text-white border-r border-gray-600">{contract.contract_number}</td>
-                          <td className="px-3 py-2 text-white border-r border-gray-600">{contract.crop}</td>
-                          <td className="px-3 py-2 text-white border-r border-gray-600">{contract.buyer}</td>
-                          <td className="px-3 py-2 text-white border-r border-gray-600">{contract.destination}</td>
-                          <td className="px-3 py-2 text-right text-white border-r border-gray-600">
+                        <tr key={idx} className="border-t border-gray-700">
+                          <td className="px-3 py-2 text-white">{contract.owner}</td>
+                          <td className="px-3 py-2 text-white">{contract.contract_number}</td>
+                          <td className="px-3 py-2 text-white">{contract.crop}</td>
+                          <td className="px-3 py-2 text-white">{contract.buyer}</td>
+                          <td className="px-3 py-2 text-white">{contract.destination}</td>
+                          <td className="px-3 py-2 text-right text-white">
                             {contract.contracted_bushels.toLocaleString()}
                           </td>
-                          <td className="px-3 py-2 text-white border-r border-gray-600">{contract.start_date || '-'}</td>
-                          <td className="px-3 py-2 text-white border-r border-gray-600">{contract.end_date || '-'}</td>
                           <td className="px-3 py-2 text-white">{contract.crop_year}</td>
                         </tr>
                       ))}
@@ -815,16 +889,16 @@ export function ContractsPage() {
                   setImportFile(null);
                   setImportPreview([]);
                 }}
-                className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-semibold"
+                className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg"
               >
                 Cancel
               </button>
               <button
                 onClick={handleImport}
                 disabled={importPreview.length === 0 || importing}
-                className="px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-bold disabled:opacity-50"
               >
-                {importing ? 'Importing...' : `Import ${importPreview.length} Contracts →`}
+                {importing ? 'Importing...' : `Import ${importPreview.length} Contracts`}
               </button>
             </div>
           </div>
