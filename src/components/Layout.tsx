@@ -9,6 +9,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const { logout } = useAuth();
   const [reviewCount, setReviewCount] = useState(0);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Smart year default: 2025 until September 1, then 2026
   const getDefaultYear = () => {
@@ -68,8 +69,27 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-gray-900 text-white flex">
+      {/* Hamburger Menu Button - Mobile Only */}
+      <button
+        onClick={() => setSidebarOpen(!sidebarOpen)}
+        className="fixed top-4 left-4 z-50 lg:hidden bg-gray-800 p-2 rounded-lg"
+      >
+        <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          {sidebarOpen ? (
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          ) : (
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+          )}
+        </svg>
+      </button>
+
       {/* Sidebar */}
-      <div className="w-64 bg-gray-800 p-4 flex flex-col">
+      <div className={`
+        fixed lg:static inset-y-0 left-0 z-40
+        w-64 bg-gray-800 p-4 flex flex-col
+        transform transition-transform duration-300 ease-in-out
+        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+      `}>
         <div className="mb-8">
           <div className="flex items-center gap-2 mb-6">
             <div className="w-10 h-10 bg-green-600 rounded-lg flex items-center justify-center text-2xl">
@@ -97,18 +117,19 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
         {/* Navigation */}
         <nav className="flex-1 space-y-1">
-          <NavItem to="/upload" icon="📤" label="Upload" active={location.pathname === '/upload'} />
+          <NavItem to="/upload" icon="📤" label="Upload" active={location.pathname === '/upload'} onClick={() => setSidebarOpen(false)} />
           <NavItem
             to="/review"
             icon="✍️"
             label="Review"
             badge={reviewCount}
             active={location.pathname === '/review'}
+            onClick={() => setSidebarOpen(false)}
           />
-          <NavItem to="/tickets" icon="🎫" label="Tickets" active={location.pathname === '/tickets'} />
-          <NavItem to="/contracts" icon="📋" label="Contracts" active={location.pathname === '/contracts'} />
-          <NavItem to="/haul-board" icon="🚜" label="Haul Board" active={location.pathname === '/haul-board'} />
-          <NavItem to="/inventory" icon="📊" label="Inventory" active={location.pathname === '/inventory'} />
+          <NavItem to="/tickets" icon="🎫" label="Tickets" active={location.pathname === '/tickets'} onClick={() => setSidebarOpen(false)} />
+          <NavItem to="/contracts" icon="📋" label="Contracts" active={location.pathname === '/contracts'} onClick={() => setSidebarOpen(false)} />
+          <NavItem to="/haul-board" icon="🚜" label="Haul Board" active={location.pathname === '/haul-board'} onClick={() => setSidebarOpen(false)} />
+          <NavItem to="/inventory" icon="📊" label="Inventory" active={location.pathname === '/inventory'} onClick={() => setSidebarOpen(false)} />
         </nav>
 
         {/* Logout */}
@@ -120,8 +141,16 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </button>
       </div>
 
-      {/* Main Content - Pass refresh key to force re-render */}
-      <div key={refreshKey} className="flex-1 overflow-auto">{children}</div>
+      {/* Overlay - Mobile Only */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 z-30 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+        ></div>
+      )}
+
+      {/* Main Content */}
+      <div key={refreshKey} className="flex-1 overflow-auto lg:ml-0 ml-0">{children}</div>
     </div>
   );
 }
@@ -132,18 +161,25 @@ function NavItem({
   label,
   badge,
   active,
+  onClick,
 }: {
   to: string;
   icon: string;
   label: string;
   badge?: number;
   active?: boolean;
+  onClick?: () => void;
 }) {
   const navigate = useNavigate();
 
+  const handleClick = () => {
+    navigate(to);
+    if (onClick) onClick(); // Close sidebar on mobile
+  };
+
   return (
     <button
-      onClick={() => navigate(to)}
+      onClick={handleClick}
       className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
         active ? 'bg-green-600 text-white' : 'text-gray-300 hover:bg-gray-700'
       }`}
