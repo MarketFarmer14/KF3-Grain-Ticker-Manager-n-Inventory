@@ -26,7 +26,7 @@ const App: React.FC = () => {
           <Route path="/review" element={<ProtectedRoute><ReviewQueuePage /></ProtectedRoute>} />
           <Route path="/tickets" element={<ProtectedRoute><TicketsPage /></ProtectedRoute>} />
           <Route path="/contracts" element={<ProtectedRoute><ContractsPage /></ProtectedRoute>} />
-          <Route path="/haul" element={<ProtectedRoute><HaulBoardPage /></ProtectedRoute>} />
+          <Route path="/haul-board" element={<ProtectedRoute><HaulBoardPage /></ProtectedRoute>} />
           <Route path="/inventory" element={<ProtectedRoute><InventoryPage /></ProtectedRoute>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
