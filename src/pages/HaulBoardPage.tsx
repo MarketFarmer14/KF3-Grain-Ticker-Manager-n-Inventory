@@ -82,18 +82,20 @@ export function HaulBoardPage() {
     const endDate = contract.end_date ? new Date(contract.end_date) : null;
     const today = new Date();
     const daysUntilEnd = endDate ? Math.ceil((endDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)) : 999;
+    const isCorn = contract.crop === 'Corn';
 
-    // Complete
+    // Complete - gray regardless of crop
     if (percentFilled >= 100) return 'bg-gray-700 border-gray-600';
     
-    // Urgent: deadline < 7 days and not complete
+    // Urgent: deadline < 7 days and not complete - red regardless of crop
     if (daysUntilEnd < 7 && percentFilled < 100) return 'bg-red-900 border-red-600';
     
-    // Nearly full
-    if (percentFilled >= 75) return 'bg-yellow-900 border-yellow-600';
-    
-    // Normal
-    return 'bg-green-900 border-green-600';
+    // Normal state - color by crop
+    if (isCorn) {
+      return 'bg-yellow-900 border-yellow-600'; // Corn = Yellow/Gold
+    } else {
+      return 'bg-green-900 border-green-600'; // Soybeans = Green
+    }
   };
 
   const getDaysUntilDeadline = (endDate: string | null): string => {
