@@ -37,9 +37,8 @@ export interface Database {
           contract_number: string;
           crop: string;
           owner: string | null;
-          buyer: string | null;
-          destination: string;
           through: string | null;
+          destination: string;
           contracted_bushels: number;
           delivered_bushels: number;
           remaining_bushels: number;
