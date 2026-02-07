@@ -441,42 +441,48 @@ export function ContractsPage() {
             </tr>
           </thead>
           <tbody>
-            {contracts.map((contract) => (
-              <tr key={contract.id} className="border-t border-gray-700 hover:bg-gray-750">
-                <td className="px-4 py-3">
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.has(contract.id)}
-                    onChange={() => toggleSelect(contract.id)}
-                    className="w-4 h-4"
-                  />
-                </td>
-                <td className="px-4 py-3 text-white">{contract.priority}</td>
-                <td className="px-4 py-3 text-white">{contract.owner || '-'}</td>
-                <td className="px-4 py-3 font-semibold text-white">{contract.contract_number}</td>
-                <td className="px-4 py-3 text-white">{contract.crop}</td>
-                <td className="px-4 py-3 text-white">{contract.through || '-'}</td>
-                <td className="px-4 py-3 text-white">{contract.destination}</td>
-                <td className="px-4 py-3 text-right text-white">{contract.contracted_bushels.toLocaleString()}</td>
-                <td className="px-4 py-3 text-right text-white">{contract.delivered_bushels.toLocaleString()}</td>
-                <td className="px-4 py-3 text-right text-white">{contract.remaining_bushels.toLocaleString()}</td>
-                <td className="px-4 py-3 text-right text-white">{contract.percent_filled?.toFixed(1)}%</td>
-                <td className="px-4 py-3 text-center">
-                  <button
-                    onClick={() => openEditModal(contract)}
-                    className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded mr-2 text-sm"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    onClick={() => handleDelete(contract.id)}
-                    className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-sm"
-                  >
-                    Delete
-                  </button>
-                </td>
-              </tr>
-            ))}
+            {contracts.map((contract) => {
+              const isCorn = contract.crop === 'Corn';
+              const rowBgClass = isCorn ? 'bg-yellow-900 bg-opacity-20' : 'bg-green-900 bg-opacity-20';
+              const hoverClass = isCorn ? 'hover:bg-yellow-900 hover:bg-opacity-30' : 'hover:bg-green-900 hover:bg-opacity-30';
+              
+              return (
+                <tr key={contract.id} className={`border-t border-gray-700 ${rowBgClass} ${hoverClass}`}>
+                  <td className="px-4 py-3">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(contract.id)}
+                      onChange={() => toggleSelect(contract.id)}
+                      className="w-4 h-4"
+                    />
+                  </td>
+                  <td className="px-4 py-3 text-white">{contract.priority}</td>
+                  <td className="px-4 py-3 text-white">{contract.owner || '-'}</td>
+                  <td className="px-4 py-3 font-semibold text-white">{contract.contract_number}</td>
+                  <td className="px-4 py-3 text-white font-semibold">{contract.crop}</td>
+                  <td className="px-4 py-3 text-white">{contract.through || '-'}</td>
+                  <td className="px-4 py-3 text-white">{contract.destination}</td>
+                  <td className="px-4 py-3 text-right text-white">{contract.contracted_bushels.toLocaleString()}</td>
+                  <td className="px-4 py-3 text-right text-white">{contract.delivered_bushels.toLocaleString()}</td>
+                  <td className="px-4 py-3 text-right text-white">{contract.remaining_bushels.toLocaleString()}</td>
+                  <td className="px-4 py-3 text-right text-white">{contract.percent_filled?.toFixed(1)}%</td>
+                  <td className="px-4 py-3 text-center">
+                    <button
+                      onClick={() => openEditModal(contract)}
+                      className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded mr-2 text-sm"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => handleDelete(contract.id)}
+                      className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-sm"
+                    >
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
