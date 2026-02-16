@@ -11,6 +11,7 @@ export interface Database {
           bushels: number;
           delivery_location: string;
           through: string;
+          truck: string | null;
           elevator: string | null;
           contract_id: string | null;
           status: 'needs_review' | 'approved' | 'rejected' | 'hold';
@@ -21,6 +22,9 @@ export interface Database {
           origin: string;
           moisture_percent: number | null;
           crop_year: string;
+          deleted: boolean;
+          deleted_at: string | null;
+          deleted_by: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -48,6 +52,7 @@ export interface Database {
           priority: number;
           overfill_allowed: boolean;
           is_template: boolean;
+          is_spot_sale: boolean;
           notes: string | null;
           crop_year: string;
           created_at: string;
