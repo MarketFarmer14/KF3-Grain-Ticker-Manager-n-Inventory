@@ -1,314 +1,430 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { useNavigate } from 'react-router-dom';
-import { ORIGIN_LOCATIONS } from '../lib/constants';
+import { findBestContract, createSpotSaleContract } from '../lib/contractMatcher';
+import type { Database } from '../lib/database.types';
 
-interface Ticket {
-  id: string;
-  ticket_date: string;
-  ticket_number: string | null;
-  person: string;
-  crop: string;
-  bushels: number;
-  delivery_location: string;
-  through: string;
-  elevator: string | null;
-  contract_id: string | null;
-  status: string;
-  image_url: string | null;
-  notes: string | null;
-  origin: string;
-  moisture_percent: number | null;
-}
+type Ticket = Database['public']['Tables']['tickets']['Row'];
+type Contract = Database['public']['Tables']['contracts']['Row'];
 
-interface Contract {
-  id: string;
-  contract_number: string;
-  crop: string;
-  destination: string;
-  through: string | null;
-  remaining_bushels: number;
-  priority: number;
-}
-
-export const ReviewQueuePage: React.FC = () => {
+export function ReviewQueuePage() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [contracts, setContracts] = useState<Contract[]>([]);
-  const [idx, setIdx] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const navigate = useNavigate();
+  const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
+  const [showOverfillModal, setShowOverfillModal] = useState(false);
+  const [overfillDecision, setOverfillDecision] = useState<'roll' | 'keep' | 'spot' | null>(null);
 
-  const [form, setForm] = useState({
-    ticket_date: new Date().toISOString().split('T')[0],
-    ticket_number: '',
-    person: '',
-    crop: '',
-    bushels: 0,
-    delivery_location: '',
-    through: 'Akron' as string,
-    elevator: '',
-    origin: '',
-    moisture_percent: null as number | null,
-    notes: '',
-  });
-
-  useEffect(() => { load(); }, []);
+  const currentYear = localStorage.getItem('grain_ticket_year') || new Date().getFullYear().toString();
 
   useEffect(() => {
-    if (tickets[idx]) {
-      const t = tickets[idx];
-      setForm({
-        ticket_date: t.ticket_date || new Date().toISOString().split('T')[0],
-        ticket_number: t.ticket_number || '',
-        person: t.person || '',
-        crop: t.crop || '',
-        bushels: t.bushels || 0,
-        delivery_location: t.delivery_location || '',
-        through: t.through || 'Akron',
-        elevator: t.elevator || '',
-        origin: t.origin || '',
-        moisture_percent: t.moisture_percent,
-        notes: t.notes || '',
+    fetchData();
+  }, [currentYear]);
+
+  const fetchData = async () => {
+    setLoading(true);
+
+    const [ticketsRes, contractsRes] = await Promise.all([
+      supabase
+        .from('tickets')
+        .select('*')
+        .eq('status', 'needs_review')
+        .eq('crop_year', currentYear)
+        .eq('deleted', false)
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('contracts')
+        .select('*')
+        .eq('crop_year', currentYear),
+    ]);
+
+    if (ticketsRes.error) console.error('Error fetching tickets:', ticketsRes.error);
+    if (contractsRes.error) console.error('Error fetching contracts:', contractsRes.error);
+
+    setTickets(ticketsRes.data || []);
+    setContracts(contractsRes.data || []);
+    setLoading(false);
+  };
+
+  const handleApprove = async (ticket: Ticket) => {
+    // Find best matching contract
+    const matchResult = findBestContract(
+      {
+        person: ticket.person,
+        crop: ticket.crop,
+        through: ticket.through,
+        delivery_location: ticket.delivery_location,
+      },
+      contracts
+    );
+
+    if (matchResult.matchType === 'spot') {
+      // No matching contract - create spot sale
+      const spotContract = createSpotSaleContract({
+        person: ticket.person,
+        crop: ticket.crop,
+        through: ticket.through,
+        delivery_location: ticket.delivery_location,
+        ticket_date: ticket.ticket_date,
+        crop_year: ticket.crop_year,
       });
+
+      const { data: newContract, error: contractError } = await supabase
+        .from('contracts')
+        .insert([spotContract])
+        .select()
+        .single();
+
+      if (contractError) {
+        alert('Failed to create spot sale contract: ' + contractError.message);
+        return;
+      }
+
+      // Assign ticket to new spot sale contract
+      const { error: ticketError } = await supabase
+        .from('tickets')
+        .update({ status: 'approved', contract_id: newContract.id })
+        .eq('id', ticket.id);
+
+      if (ticketError) {
+        alert('Failed to approve ticket: ' + ticketError.message);
+      } else {
+        alert('Created spot sale contract and approved ticket!');
+        fetchData();
+      }
+      return;
     }
-  }, [idx, tickets]);
 
-  const load = async () => {
-    try {
-      const [ticketRes, contractRes] = await Promise.all([
-        supabase.from('tickets').select('*').eq('status', 'needs_review').order('created_at', { ascending: true }),
-        supabase.from('contracts').select('id,contract_number,crop,destination,through,remaining_bushels,priority').order('priority', { ascending: true }),
-      ]);
-      setTickets(ticketRes.data || []);
-      setContracts(contractRes.data || []);
-    } catch (e: unknown) {
-      console.error(e);
-    } finally {
-      setLoading(false);
+    // Check if contract will be overfilled
+    const contract = matchResult.contract!;
+    const newDelivered = contract.delivered_bushels + ticket.bushels;
+    const willOverfill = newDelivered > contract.contracted_bushels;
+
+    if (willOverfill && !contract.overfill_allowed) {
+      // Show overfill decision modal
+      setSelectedTicket(ticket);
+      setShowOverfillModal(true);
+      return;
     }
-  };
 
-  const findMatch = (): Contract | null => {
-    const matches = contracts.filter((c) => {
-      const cropMatch = c.crop.toLowerCase() === form.crop.toLowerCase();
-      const destMatch = !c.destination || c.destination.toLowerCase() === form.delivery_location.toLowerCase();
-      const throughMatch = c.through === 'Any' || c.through === form.through;
-      return cropMatch && destMatch && throughMatch;
-    });
-    return matches[0] || null;
-  };
+    // Normal approval - assign to contract
+    const { error } = await supabase
+      .from('tickets')
+      .update({ status: 'approved', contract_id: contract.id })
+      .eq('id', ticket.id);
 
-  const advance = () => {
-    if (idx < tickets.length - 1) setIdx(idx + 1);
-    else navigate('/tickets');
-  };
-
-  const handleApprove = async () => {
-    if (!form.person.trim()) return alert('Person is required');
-    if (!form.crop.trim()) return alert('Crop is required');
-    if (form.bushels <= 0) return alert('Bushels must be > 0');
-    if (!form.delivery_location.trim()) return alert('Delivery location is required');
-    if (!form.origin.trim()) return alert('Origin is required');
-
-    setSaving(true);
-    try {
-      const match = findMatch();
-      const currentYear = localStorage.getItem('selected_crop_year') || new Date().getFullYear().toString();
-      const { error } = await supabase.from('tickets').update({
-        ...form,
-        status: 'approved',
-        contract_id: match?.id || null,
-        crop_year: currentYear,
-        updated_at: new Date().toISOString(),
-      }).eq('id', tickets[idx].id);
-      if (error) throw error;
-      advance();
-    } catch (e: unknown) {
-      alert('Approve failed: ' + (e as Error).message);
-    } finally {
-      setSaving(false);
+    if (error) {
+      alert('Failed to approve: ' + error.message);
+    } else {
+      fetchData();
     }
   };
 
-  const handleStatus = async (status: 'rejected' | 'hold') => {
-    if (status === 'rejected' && !confirm('Reject this ticket?')) return;
-    setSaving(true);
-    try {
-      const { error } = await supabase.from('tickets').update({
-        status,
-        updated_at: new Date().toISOString(),
-      }).eq('id', tickets[idx].id);
-      if (error) throw error;
-      advance();
-    } catch (e: unknown) {
-      alert(`${status} failed: ` + (e as Error).message);
-    } finally {
-      setSaving(false);
+  const handleOverfillDecision = async () => {
+    if (!selectedTicket || !overfillDecision) return;
+
+    const matchResult = findBestContract(
+      {
+        person: selectedTicket.person,
+        crop: selectedTicket.crop,
+        through: selectedTicket.through,
+        delivery_location: selectedTicket.delivery_location,
+      },
+      contracts
+    );
+
+    const contract = matchResult.contract!;
+
+    if (overfillDecision === 'keep') {
+      // Keep on current contract (allow overfill)
+      const { error } = await supabase
+        .from('tickets')
+        .update({ status: 'approved', contract_id: contract.id })
+        .eq('id', selectedTicket.id);
+
+      if (error) {
+        alert('Failed: ' + error.message);
+      } else {
+        setShowOverfillModal(false);
+        setSelectedTicket(null);
+        setOverfillDecision(null);
+        fetchData();
+      }
+    } else if (overfillDecision === 'roll') {
+      // Find next available contract
+      const remainingContracts = contracts.filter(
+        (c) =>
+          c.id !== contract.id &&
+          c.owner === selectedTicket.person &&
+          c.crop === selectedTicket.crop &&
+          c.through === selectedTicket.through &&
+          (c.percent_filled || 0) < 100
+      );
+
+      if (remainingContracts.length === 0) {
+        alert('No other contracts available. Creating spot sale instead.');
+        const spotContract = createSpotSaleContract({
+          person: selectedTicket.person,
+          crop: selectedTicket.crop,
+          through: selectedTicket.through,
+          delivery_location: selectedTicket.delivery_location,
+          ticket_date: selectedTicket.ticket_date,
+          crop_year: selectedTicket.crop_year,
+        });
+
+        const { data: newContract, error: contractError } = await supabase
+          .from('contracts')
+          .insert([spotContract])
+          .select()
+          .single();
+
+        if (contractError) {
+          alert('Failed to create spot sale: ' + contractError.message);
+          return;
+        }
+
+        const { error: ticketError } = await supabase
+          .from('tickets')
+          .update({ status: 'approved', contract_id: newContract.id })
+          .eq('id', selectedTicket.id);
+
+        if (!ticketError) {
+          setShowOverfillModal(false);
+          setSelectedTicket(null);
+          setOverfillDecision(null);
+          fetchData();
+        }
+      } else {
+        // Roll to next contract
+        const nextContract = remainingContracts.sort((a, b) => {
+          const aDate = a.end_date ? new Date(a.end_date).getTime() : Infinity;
+          const bDate = b.end_date ? new Date(b.end_date).getTime() : Infinity;
+          return aDate - bDate;
+        })[0];
+
+        const { error } = await supabase
+          .from('tickets')
+          .update({ status: 'approved', contract_id: nextContract.id })
+          .eq('id', selectedTicket.id);
+
+        if (!error) {
+          setShowOverfillModal(false);
+          setSelectedTicket(null);
+          setOverfillDecision(null);
+          fetchData();
+        }
+      }
+    } else if (overfillDecision === 'spot') {
+      // Create spot sale
+      const spotContract = createSpotSaleContract({
+        person: selectedTicket.person,
+        crop: selectedTicket.crop,
+        through: selectedTicket.through,
+        delivery_location: selectedTicket.delivery_location,
+        ticket_date: selectedTicket.ticket_date,
+        crop_year: selectedTicket.crop_year,
+      });
+
+      const { data: newContract, error: contractError } = await supabase
+        .from('contracts')
+        .insert([spotContract])
+        .select()
+        .single();
+
+      if (contractError) {
+        alert('Failed to create spot sale: ' + contractError.message);
+        return;
+      }
+
+      const { error: ticketError } = await supabase
+        .from('tickets')
+        .update({ status: 'approved', contract_id: newContract.id })
+        .eq('id', selectedTicket.id);
+
+      if (!ticketError) {
+        setShowOverfillModal(false);
+        setSelectedTicket(null);
+        setOverfillDecision(null);
+        fetchData();
+      }
+    }
+  };
+
+  const handleReject = async (ticketId: string) => {
+    if (!confirm('Reject this ticket?')) return;
+
+    const { error } = await supabase
+      .from('tickets')
+      .update({ status: 'rejected' })
+      .eq('id', ticketId);
+
+    if (error) {
+      alert('Failed to reject: ' + error.message);
+    } else {
+      fetchData();
     }
   };
 
   if (loading) {
-    return <div className="flex items-center justify-center h-64"><p className="text-gray-400 text-lg">Loading…</p></div>;
+    return <div className="p-8 text-center text-white">Loading review queue...</div>;
   }
-
-  if (tickets.length === 0) {
-    return (
-      <div className="max-w-3xl mx-auto">
-        <h1 className="text-2xl font-bold text-white mb-6">Review Queue</h1>
-        <div className="bg-gray-800 rounded-xl p-12 text-center">
-          <p className="text-gray-400 text-lg mb-4">No tickets to review</p>
-          <button onClick={() => navigate('/upload')} className="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-lg text-sm font-medium">
-            Upload Tickets
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  const ticket = tickets[idx];
-  const match = findMatch();
 
   return (
-    <div className="max-w-6xl mx-auto">
-      <div className="flex justify-between items-center mb-5">
-        <h1 className="text-2xl font-bold text-white">Review Queue</h1>
-        <span className="text-gray-500 text-sm">{idx + 1} of {tickets.length}</span>
-      </div>
+    <div className="p-4 md:p-8">
+      <h1 className="text-3xl font-bold text-white mb-6">Review Queue ({currentYear})</h1>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Image */}
-        <div className="bg-gray-800 rounded-xl p-4">
-          <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3">Ticket Image</h3>
-          {ticket.image_url ? (
-            <img src={ticket.image_url} alt="Ticket" className="w-full rounded-lg" />
-          ) : (
-            <div className="bg-gray-700 rounded-lg p-16 text-center text-gray-500">No image</div>
-          )}
+      {tickets.length === 0 ? (
+        <div className="text-center text-white mt-8">No tickets need review</div>
+      ) : (
+        <div className="space-y-4">
+          {tickets.map((ticket) => (
+            <div key={ticket.id} className="bg-gray-800 rounded-lg p-6">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                <div>
+                  <div className="text-gray-400 text-sm">Date</div>
+                  <div className="text-white font-semibold">
+                    {new Date(ticket.ticket_date).toLocaleDateString()}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-gray-400 text-sm">Person</div>
+                  <div className="text-white font-semibold">{ticket.person}</div>
+                </div>
+                <div>
+                  <div className="text-gray-400 text-sm">Crop</div>
+                  <div className="text-white font-semibold">{ticket.crop}</div>
+                </div>
+                <div>
+                  <div className="text-gray-400 text-sm">Bushels</div>
+                  <div className="text-white font-semibold">{ticket.bushels.toLocaleString()}</div>
+                </div>
+                <div>
+                  <div className="text-gray-400 text-sm">Location</div>
+                  <div className="text-white font-semibold">{ticket.delivery_location}</div>
+                </div>
+                <div>
+                  <div className="text-gray-400 text-sm">Through</div>
+                  <div className="text-white font-semibold">{ticket.through}</div>
+                </div>
+                {ticket.truck && (
+                  <div>
+                    <div className="text-gray-400 text-sm">Truck</div>
+                    <div className="text-white font-semibold">{ticket.truck}</div>
+                  </div>
+                )}
+                {ticket.moisture_percent && (
+                  <div>
+                    <div className="text-gray-400 text-sm">Moisture</div>
+                    <div className="text-white font-semibold">{ticket.moisture_percent}%</div>
+                  </div>
+                )}
+              </div>
+
+              {ticket.image_url && (
+                <div className="mb-4">
+                  <img
+                    src={ticket.image_url}
+                    alt="Ticket"
+                    className="max-w-md rounded-lg cursor-pointer"
+                    onClick={() => window.open(ticket.image_url!, '_blank')}
+                  />
+                </div>
+              )}
+
+              {ticket.notes && (
+                <div className="mb-4">
+                  <div className="text-gray-400 text-sm">Notes</div>
+                  <div className="text-white">{ticket.notes}</div>
+                </div>
+              )}
+
+              <div className="flex gap-2">
+                <button
+                  onClick={() => handleApprove(ticket)}
+                  className="px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold"
+                >
+                  ✓ Approve
+                </button>
+                <button
+                  onClick={() => handleReject(ticket.id)}
+                  className="px-6 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-semibold"
+                >
+                  ✗ Reject
+                </button>
+              </div>
+            </div>
+          ))}
         </div>
+      )}
 
-        {/* Form */}
-        <div className="bg-gray-800 rounded-xl p-5 space-y-3">
-          <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wide">Ticket Details</h3>
+      {/* Overfill Decision Modal */}
+      {showOverfillModal && selectedTicket && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-800 rounded-lg p-6 max-w-md w-full">
+            <h2 className="text-2xl font-bold mb-4 text-white">Contract Will Be Overfilled</h2>
+            <p className="text-gray-300 mb-6">
+              This ticket will put the contract over its contracted amount. What would you like to do?
+            </p>
 
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Ticket Date *</label>
-            <input type="date" value={form.ticket_date} onChange={(e) => setForm({ ...form, ticket_date: e.target.value })}
-              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white text-sm outline-none focus:border-emerald-500" />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Ticket Number</label>
-            <input type="text" value={form.ticket_number} onChange={(e) => setForm({ ...form, ticket_number: e.target.value })}
-              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white text-sm outline-none focus:border-emerald-500" />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Person *</label>
-            <select value={form.person} onChange={(e) => setForm({ ...form, person: e.target.value })}
-              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white text-sm outline-none focus:border-emerald-500">
-              <option value="">Select person...</option>
-              <option value="Karl">Karl</option>
-              <option value="Anthony">Anthony</option>
-              <option value="Ethan">Ethan</option>
-              <option value="Bob">Bob</option>
-              <option value="Connie">Connie</option>
-              <option value="Bonnie">Bonnie</option>
-              <option value="Roger">Roger</option>
-              <option value="PHF">PHF</option>
-              <option value="Mannix">Mannix</option>
-              <option value="Routh">Routh</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Crop *</label>
-            <input type="text" value={form.crop} onChange={(e) => setForm({ ...form, crop: e.target.value })}
-              placeholder="Corn, Soybeans…"
-              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white text-sm outline-none focus:border-emerald-500" />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Bushels *</label>
-            <input type="number" step="0.01" value={form.bushels} onChange={(e) => setForm({ ...form, bushels: parseFloat(e.target.value) || 0 })}
-              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white text-sm outline-none focus:border-emerald-500" />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Delivery Location *</label>
-            <input type="text" value={form.delivery_location} onChange={(e) => setForm({ ...form, delivery_location: e.target.value })}
-              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white text-sm outline-none focus:border-emerald-500" />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Through *</label>
-            <div className="flex gap-4">
-              {(['Akron', 'RVC', 'Cargill'] as const).map((opt) => (
-                <label key={opt} className="flex items-center cursor-pointer">
-                  <input type="radio" checked={form.through === opt} onChange={() => setForm({ ...form, through: opt })} className="mr-1.5 accent-emerald-500" />
-                  <span className="text-white text-sm">{opt}</span>
-                </label>
-              ))}
+            <div className="space-y-3 mb-6">
+              <button
+                onClick={() => setOverfillDecision('roll')}
+                className={`w-full px-4 py-3 rounded-lg text-left ${
+                  overfillDecision === 'roll'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                }`}
+              >
+                <div className="font-semibold">Roll to Next Contract</div>
+                <div className="text-sm">Find another matching contract for this load</div>
+              </button>
+
+              <button
+                onClick={() => setOverfillDecision('keep')}
+                className={`w-full px-4 py-3 rounded-lg text-left ${
+                  overfillDecision === 'keep'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                }`}
+              >
+                <div className="font-semibold">Keep on This Contract</div>
+                <div className="text-sm">Allow overfill on current contract</div>
+              </button>
+
+              <button
+                onClick={() => setOverfillDecision('spot')}
+                className={`w-full px-4 py-3 rounded-lg text-left ${
+                  overfillDecision === 'spot'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                }`}
+              >
+                <div className="font-semibold">Create Spot Sale</div>
+                <div className="text-sm">Make this a new spot sale contract</div>
+              </button>
             </div>
-          </div>
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Elevator</label>
-            <input type="text" value={form.elevator} onChange={(e) => setForm({ ...form, elevator: e.target.value })}
-              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white text-sm outline-none focus:border-emerald-500" />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Origin *</label>
-            <select value={form.origin} onChange={(e) => setForm({ ...form, origin: e.target.value })}
-              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white text-sm outline-none focus:border-emerald-500">
-              <option value="">Select origin...</option>
-              {ORIGIN_LOCATIONS.map((loc) => (
-                <option key={loc} value={loc}>{loc}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Moisture %</label>
-            <input type="number" step="0.01" value={form.moisture_percent || ''} onChange={(e) => setForm({ ...form, moisture_percent: e.target.value ? parseFloat(e.target.value) : null })}
-              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white text-sm outline-none focus:border-emerald-500" />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Notes</label>
-            <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} rows={2}
-              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white text-sm outline-none focus:border-emerald-500 resize-none" />
-          </div>
 
-          {/* Auto-assign indicator */}
-          {match && form.crop && (
-            <div className="p-2.5 bg-emerald-900/30 border border-emerald-800 rounded-lg">
-              <p className="text-emerald-300 text-xs">✓ Auto-assigns to contract <strong>{match.contract_number}</strong> (priority {match.priority})</p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  setShowOverfillModal(false);
+                  setSelectedTicket(null);
+                  setOverfillDecision(null);
+                }}
+                className="flex-1 px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleOverfillDecision}
+                disabled={!overfillDecision}
+                className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white rounded-lg font-semibold"
+              >
+                Confirm
+              </button>
             </div>
-          )}
-          {!match && form.crop && form.delivery_location && (
-            <div className="p-2.5 bg-yellow-900/30 border border-yellow-800 rounded-lg">
-              <p className="text-yellow-300 text-xs">⚠ No matching contract found — will approve without assignment</p>
-            </div>
-          )}
-
-          {/* Action buttons */}
-          <div className="flex gap-2 pt-2">
-            <button onClick={handleApprove} disabled={saving} className="flex-1 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-600 text-white text-sm font-medium py-2.5 rounded-lg transition">
-              {saving ? '…' : 'Approve'}
-            </button>
-            <button onClick={() => handleStatus('hold')} disabled={saving} className="flex-1 bg-yellow-600 hover:bg-yellow-700 disabled:bg-gray-600 text-white text-sm font-medium py-2.5 rounded-lg transition">
-              Hold
-            </button>
-            <button onClick={() => handleStatus('rejected')} disabled={saving} className="flex-1 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 text-white text-sm font-medium py-2.5 rounded-lg transition">
-              Reject
-            </button>
-          </div>
-
-          {/* Navigation */}
-          <div className="flex gap-2">
-            <button onClick={() => setIdx(Math.max(0, idx - 1))} disabled={idx === 0 || saving}
-              className="flex-1 bg-gray-700 hover:bg-gray-600 disabled:opacity-30 text-white text-sm py-2 rounded-lg transition">
-              ← Prev
-            </button>
-            <button onClick={() => setIdx(Math.min(tickets.length - 1, idx + 1))} disabled={idx === tickets.length - 1 || saving}
-              className="flex-1 bg-gray-700 hover:bg-gray-600 disabled:opacity-30 text-white text-sm py-2 rounded-lg transition">
-              Next →
-            </button>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
-};
+}
