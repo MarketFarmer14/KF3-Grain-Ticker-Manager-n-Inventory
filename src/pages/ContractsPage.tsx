@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import type { Database } from '../lib/database.types';
@@ -459,7 +458,12 @@ export function ContractsPage() {
                   </td>
                   <td className="px-4 py-3 text-white">{contract.priority}</td>
                   <td className="px-4 py-3 text-white">{contract.owner || '-'}</td>
-                  <td className="px-4 py-3 font-semibold text-white">{contract.contract_number}</td>
+                  <td className="px-4 py-3 font-semibold text-white">
+                    {contract.contract_number}
+                    {contract.is_spot_sale && (
+                      <span className="ml-2 px-2 py-1 bg-purple-600 text-white text-xs rounded">SPOT</span>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-white font-semibold">{contract.crop}</td>
                   <td className="px-4 py-3 text-white">{contract.through || '-'}</td>
                   <td className="px-4 py-3 text-white">{contract.destination}</td>
