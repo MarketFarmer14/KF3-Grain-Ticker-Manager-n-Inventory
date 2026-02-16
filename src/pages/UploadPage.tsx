@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { Camera } from 'lucide-react';
+import { Camera, Sparkles } from 'lucide-react';
 
 export function UploadPage() {
   const [formData, setFormData] = useState({
@@ -18,6 +18,7 @@ export function UploadPage() {
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [aiProcessing, setAiProcessing] = useState(false);
 
   const currentYear = localStorage.getItem('grain_ticket_year') || new Date().getFullYear().toString();
 
@@ -30,6 +31,57 @@ export function UploadPage() {
         setImagePreview(reader.result as string);
       };
       reader.readAsDataURL(file);
+    }
+  };
+
+  const handleAIRead = async () => {
+    if (!imagePreview) {
+      alert('Please capture an image first');
+      return;
+    }
+
+    setAiProcessing(true);
+
+    try {
+      // Convert base64 to just the data part (remove data:image/jpeg;base64,)
+      const base64Data = imagePreview.split(',')[1];
+
+      // Call Netlify function
+      const response = await fetch('/.netlify/functions/read-ticket', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ imageBase64: base64Data }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'AI reading failed');
+      }
+
+      const data = await response.json();
+
+      // Auto-fill form with AI-extracted data
+      setFormData({
+        ticket_date: data.ticket_date || formData.ticket_date,
+        ticket_number: data.ticket_number || '',
+        person: data.person || '',
+        crop: data.crop || '',
+        bushels: data.bushels ? data.bushels.toString() : '',
+        delivery_location: data.delivery_location || '',
+        through: data.through || '',
+        truck: data.truck || '',
+        moisture_percent: data.moisture_percent ? data.moisture_percent.toString() : '',
+        notes: data.notes || '',
+      });
+
+      alert('✅ Ticket data extracted! Please review and edit if needed.');
+    } catch (error: any) {
+      alert('AI reading failed: ' + error.message);
+      console.error('AI Error:', error);
+    } finally {
+      setAiProcessing(false);
     }
   };
 
@@ -98,6 +150,53 @@ export function UploadPage() {
       <h1 className="text-3xl font-bold text-white mb-6">Upload Ticket</h1>
 
       <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Image Capture Section */}
+        <div className="bg-gray-800 rounded-lg p-4 mb-6">
+          <label className="block text-sm font-medium mb-2 text-white">Ticket Image</label>
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="cursor-pointer flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg">
+              <Camera size={20} />
+              <span>Capture/Upload Image</span>
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={handleImageCapture}
+                className="hidden"
+              />
+            </label>
+
+            {imagePreview && (
+              <>
+                <button
+                  type="button"
+                  onClick={handleAIRead}
+                  disabled={aiProcessing}
+                  className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 text-white rounded-lg font-semibold"
+                >
+                  <Sparkles size={20} />
+                  <span>{aiProcessing ? 'Reading...' : '🤖 Auto-Fill from Image'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setImageFile(null);
+                    setImagePreview(null);
+                  }}
+                  className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg"
+                >
+                  Remove Image
+                </button>
+              </>
+            )}
+          </div>
+          {imagePreview && (
+            <img src={imagePreview} alt="Preview" className="mt-4 max-w-md rounded-lg" />
+          )}
+        </div>
+
+        {/* Form Fields */}
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium mb-1 text-white">Date *</label>
@@ -216,38 +315,6 @@ export function UploadPage() {
             className="w-full px-3 py-2 bg-gray-700 text-white rounded-lg"
             rows={3}
           />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium mb-2 text-white">Ticket Image</label>
-          <div className="flex items-center gap-4">
-            <label className="cursor-pointer flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg">
-              <Camera size={20} />
-              <span>Capture/Upload Image</span>
-              <input
-                type="file"
-                accept="image/*"
-                capture="environment"
-                onChange={handleImageCapture}
-                className="hidden"
-              />
-            </label>
-            {imagePreview && (
-              <button
-                type="button"
-                onClick={() => {
-                  setImageFile(null);
-                  setImagePreview(null);
-                }}
-                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg"
-              >
-                Remove Image
-              </button>
-            )}
-          </div>
-          {imagePreview && (
-            <img src={imagePreview} alt="Preview" className="mt-4 max-w-md rounded-lg" />
-          )}
         </div>
 
         <button
