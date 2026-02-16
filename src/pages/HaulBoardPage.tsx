@@ -12,6 +12,7 @@ export function HaulBoardPage() {
   const [filteredContracts, setFilteredContracts] = useState<Contract[]>([]);
   const [loading, setLoading] = useState(true);
   const [cropFilter, setCropFilter] = useState<string>('All');
+  const [showCompleted, setShowCompleted] = useState(false);
   const [sortField, setSortField] = useState<SortField>('end_date');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
 
@@ -23,15 +24,14 @@ export function HaulBoardPage() {
 
   useEffect(() => {
     applyFiltersAndSort();
-  }, [contracts, cropFilter, sortField, sortDirection]);
+  }, [contracts, cropFilter, sortField, sortDirection, showCompleted]);
 
   const fetchContracts = async () => {
     setLoading(true);
     const { data, error } = await supabase
       .from('contracts')
       .select('*')
-      .eq('crop_year', currentYear)
-      .gt('remaining_bushels', 0); // Only show contracts with remaining bushels
+      .eq('crop_year', currentYear);
 
     if (error) {
       console.error('Error fetching contracts:', error);
@@ -43,6 +43,11 @@ export function HaulBoardPage() {
 
   const applyFiltersAndSort = () => {
     let filtered = [...contracts];
+
+    // Filter by completed status
+    if (!showCompleted) {
+      filtered = filtered.filter(c => c.remaining_bushels > 0);
+    }
 
     // Apply crop filter
     if (cropFilter !== 'All') {
@@ -161,17 +166,32 @@ export function HaulBoardPage() {
         </div>
 
         {/* Crop Filter */}
-        <div className="flex items-center gap-4">
-          <label className="text-white font-medium">Filter by Crop:</label>
-          <select
-            value={cropFilter}
-            onChange={(e) => setCropFilter(e.target.value)}
-            className="px-4 py-2 bg-gray-700 text-white rounded-lg border border-gray-600"
-          >
-            <option value="All">All Crops</option>
-            <option value="Corn">Corn</option>
-            <option value="Soybeans">Soybeans</option>
-          </select>
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="flex items-center gap-2">
+            <label className="text-white font-medium">Filter by Crop:</label>
+            <select
+              value={cropFilter}
+              onChange={(e) => setCropFilter(e.target.value)}
+              className="px-4 py-2 bg-gray-700 text-white rounded-lg border border-gray-600"
+            >
+              <option value="All">All Crops</option>
+              <option value="Corn">Corn</option>
+              <option value="Soybeans">Soybeans</option>
+            </select>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="showCompleted"
+              checked={showCompleted}
+              onChange={(e) => setShowCompleted(e.target.checked)}
+              className="w-4 h-4"
+            />
+            <label htmlFor="showCompleted" className="text-white font-medium cursor-pointer">
+              Show Completed Contracts
+            </label>
+          </div>
         </div>
       </div>
 
