@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { findBestContract, createSpotSaleContract } from '../lib/contractMatcher';
+import { Sparkles } from 'lucide-react';
 import type { Database } from '../lib/database.types';
 
 type Ticket = Database['public']['Tables']['tickets']['Row'];
@@ -13,6 +14,7 @@ export function ReviewQueuePage() {
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [showOverfillModal, setShowOverfillModal] = useState(false);
   const [overfillDecision, setOverfillDecision] = useState<'roll' | 'keep' | 'spot' | null>(null);
+  const [aiProcessing, setAiProcessing] = useState<string | null>(null); // Track which ticket is being processed
 
   const currentYear = localStorage.getItem('grain_ticket_year') || new Date().getFullYear().toString();
 
@@ -43,6 +45,80 @@ export function ReviewQueuePage() {
     setTickets(ticketsRes.data || []);
     setContracts(contractsRes.data || []);
     setLoading(false);
+  };
+
+  const handleAIRead = async (ticket: Ticket) => {
+    if (!ticket.image_url) {
+      alert('No image attached to this ticket');
+      return;
+    }
+
+    setAiProcessing(ticket.id);
+
+    try {
+      // Fetch the image and convert to base64
+      const response = await fetch(ticket.image_url);
+      const blob = await response.blob();
+      
+      const base64Data = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const result = reader.result as string;
+          const base64 = result.split(',')[1]; // Remove data:image/jpeg;base64, prefix
+          resolve(base64);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+
+      // Call Netlify function
+      const aiResponse = await fetch('/.netlify/functions/read-ticket', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ imageBase64: base64Data }),
+      });
+
+      if (!aiResponse.ok) {
+        const error = await aiResponse.json();
+        throw new Error(error.error || 'AI reading failed');
+      }
+
+      const extractedData = await aiResponse.json();
+
+      // Update ticket in database with AI-extracted data
+      const updates: any = {};
+      if (extractedData.ticket_date) updates.ticket_date = extractedData.ticket_date;
+      if (extractedData.ticket_number) updates.ticket_number = extractedData.ticket_number;
+      if (extractedData.person) updates.person = extractedData.person;
+      if (extractedData.crop) updates.crop = extractedData.crop;
+      if (extractedData.bushels) updates.bushels = extractedData.bushels;
+      if (extractedData.delivery_location) updates.delivery_location = extractedData.delivery_location;
+      if (extractedData.through) updates.through = extractedData.through;
+      if (extractedData.truck) updates.truck = extractedData.truck;
+      if (extractedData.moisture_percent) updates.moisture_percent = extractedData.moisture_percent;
+      if (extractedData.notes) updates.notes = extractedData.notes;
+
+      if (Object.keys(updates).length > 0) {
+        const { error } = await supabase
+          .from('tickets')
+          .update(updates)
+          .eq('id', ticket.id);
+
+        if (error) throw error;
+
+        alert('✅ Ticket data extracted and updated! Please review before approving.');
+        fetchData(); // Refresh to show updated data
+      } else {
+        alert('⚠️ No data could be extracted from the image');
+      }
+    } catch (error: any) {
+      alert('AI reading failed: ' + error.message);
+      console.error('AI Error:', error);
+    } finally {
+      setAiProcessing(null);
+    }
   };
 
   const handleApprove = async (ticket: Ticket) => {
@@ -135,7 +211,6 @@ export function ReviewQueuePage() {
     const contract = matchResult.contract!;
 
     if (overfillDecision === 'keep') {
-      // Keep on current contract (allow overfill)
       const { error } = await supabase
         .from('tickets')
         .update({ status: 'approved', contract_id: contract.id })
@@ -150,7 +225,6 @@ export function ReviewQueuePage() {
         fetchData();
       }
     } else if (overfillDecision === 'roll') {
-      // Find next available contract
       const remainingContracts = contracts.filter(
         (c) =>
           c.id !== contract.id &&
@@ -194,7 +268,6 @@ export function ReviewQueuePage() {
           fetchData();
         }
       } else {
-        // Roll to next contract
         const nextContract = remainingContracts.sort((a, b) => {
           const aDate = a.end_date ? new Date(a.end_date).getTime() : Infinity;
           const bDate = b.end_date ? new Date(b.end_date).getTime() : Infinity;
@@ -214,7 +287,6 @@ export function ReviewQueuePage() {
         }
       }
     } else if (overfillDecision === 'spot') {
-      // Create spot sale
       const spotContract = createSpotSaleContract({
         person: selectedTicket.person,
         crop: selectedTicket.crop,
@@ -337,7 +409,17 @@ export function ReviewQueuePage() {
                 </div>
               )}
 
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
+                {ticket.image_url && (
+                  <button
+                    onClick={() => handleAIRead(ticket)}
+                    disabled={aiProcessing === ticket.id}
+                    className="flex items-center gap-2 px-6 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 text-white rounded-lg font-semibold"
+                  >
+                    <Sparkles size={20} />
+                    <span>{aiProcessing === ticket.id ? 'Reading...' : '🤖 AI Auto-Fill'}</span>
+                  </button>
+                )}
                 <button
                   onClick={() => handleApprove(ticket)}
                   className="px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold"
