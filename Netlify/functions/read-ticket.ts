@@ -1,10 +1,10 @@
-// Netlify Function: AI Ticket Reader
+// Netlify Function: AI Ticket Reader with Usage Tracking
 // Location: netlify/functions/read-ticket.ts
 
 import OpenAI from 'openai';
+import { createClient } from '@supabase/supabase-js';
 
 export const handler = async (event: any) => {
-  // Only allow POST
   if (event.httpMethod !== 'POST') {
     return {
       statusCode: 405,
@@ -22,7 +22,37 @@ export const handler = async (event: any) => {
       };
     }
 
-    // Initialize OpenAI with API key from environment
+    // Initialize Supabase
+    const supabase = createClient(
+      process.env.VITE_SUPABASE_URL!,
+      process.env.VITE_SUPABASE_ANON_KEY!
+    );
+
+    // Check usage limit
+    const { data: usageData, error: usageError } = await supabase
+      .rpc('get_ai_usage');
+
+    if (usageError) {
+      console.error('Usage check failed:', usageError);
+      // Continue anyway - don't block on usage check failure
+    }
+
+    const currentUsage = usageData?.[0]?.count || 0;
+    const MONTHLY_LIMIT = 500;
+
+    if (currentUsage >= MONTHLY_LIMIT) {
+      return {
+        statusCode: 429,
+        body: JSON.stringify({ 
+          error: 'Monthly AI limit reached',
+          usage: currentUsage,
+          limit: MONTHLY_LIMIT,
+          resetDate: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1).toISOString()
+        }),
+      };
+    }
+
+    // Initialize OpenAI
     const openai = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
     });
@@ -79,7 +109,6 @@ Extract whatever you can see. If you can't read something, use null.`,
     // Parse the JSON response
     let extractedData;
     try {
-      // Remove markdown code blocks if present
       const cleanContent = content?.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
       extractedData = JSON.parse(cleanContent || '{}');
     } catch (parseError) {
@@ -93,12 +122,19 @@ Extract whatever you can see. If you can't read something, use null.`,
       };
     }
 
+    // Increment usage counter (do this AFTER successful AI call)
+    await supabase.rpc('increment_ai_usage');
+
     return {
       statusCode: 200,
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(extractedData),
+      body: JSON.stringify({
+        ...extractedData,
+        _usage: currentUsage + 1,
+        _limit: 500
+      }),
     };
   } catch (error: any) {
     console.error('OpenAI API Error:', error);
@@ -111,5 +147,3 @@ Extract whatever you can see. If you can't read something, use null.`,
     };
   }
 };
-
-
