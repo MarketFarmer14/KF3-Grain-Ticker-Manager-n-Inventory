@@ -14,13 +14,22 @@ export function ReviewQueuePage() {
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [showOverfillModal, setShowOverfillModal] = useState(false);
   const [overfillDecision, setOverfillDecision] = useState<'roll' | 'keep' | 'spot' | null>(null);
-  const [aiProcessing, setAiProcessing] = useState<string | null>(null); // Track which ticket is being processed
+  const [aiProcessing, setAiProcessing] = useState<string | null>(null);
+  const [aiUsage, setAiUsage] = useState({ count: 0, limit: 500 });
 
   const currentYear = localStorage.getItem('grain_ticket_year') || new Date().getFullYear().toString();
 
   useEffect(() => {
     fetchData();
+    fetchAIUsage();
   }, [currentYear]);
+
+  const fetchAIUsage = async () => {
+    const { data, error } = await supabase.rpc('get_ai_usage');
+    if (data && data.length > 0) {
+      setAiUsage({ count: data[0].count, limit: 500 });
+    }
+  };
 
   const fetchData = async () => {
     setLoading(true);
@@ -86,6 +95,11 @@ export function ReviewQueuePage() {
       }
 
       const extractedData = await aiResponse.json();
+
+      // Update usage display
+      if (extractedData._usage) {
+        setAiUsage({ count: extractedData._usage, limit: extractedData._limit || 500 });
+      }
 
       // Update ticket in database with AI-extracted data
       const updates: any = {};
@@ -413,11 +427,16 @@ export function ReviewQueuePage() {
                 {ticket.image_url && (
                   <button
                     onClick={() => handleAIRead(ticket)}
-                    disabled={aiProcessing === ticket.id}
+                    disabled={aiProcessing === ticket.id || aiUsage.count >= aiUsage.limit}
                     className="flex items-center gap-2 px-6 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 text-white rounded-lg font-semibold"
+                    title={aiUsage.count >= aiUsage.limit ? 'Monthly AI limit reached' : ''}
                   >
                     <Sparkles size={20} />
-                    <span>{aiProcessing === ticket.id ? 'Reading...' : '🤖 AI Auto-Fill'}</span>
+                    <span>
+                      {aiProcessing === ticket.id ? 'Reading...' : 
+                       aiUsage.count >= aiUsage.limit ? '🔒 Limit Reached' :
+                       '🤖 AI Auto-Fill'}
+                    </span>
                   </button>
                 )}
                 <button
