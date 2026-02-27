@@ -1,3 +1,9 @@
+# ContractsPage.tsx - Complete Code
+
+**Location:** `src/pages/ContractsPage.tsx`  
+**Action:** REPLACE existing file
+
+```typescript
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import type { Database } from '../lib/database.types';
@@ -898,3 +904,4 @@ export function ContractsPage() {
     </div>
   );
 }
+```
