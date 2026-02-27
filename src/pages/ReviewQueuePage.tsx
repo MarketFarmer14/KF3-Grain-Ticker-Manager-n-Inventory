@@ -537,14 +537,3 @@ export function ReviewQueuePage() {
     </div>
   );
 }
-```
-
----
-
-## Deploy Steps:
-
-1. GitHub → Your repo → `src/pages/ReviewQueuePage.tsx`
-2. Click "Edit" (pencil icon)
-3. Select All → Delete everything
-4. Paste the code above
-5. Commit: "Add AI and smart features to Review Queue"
