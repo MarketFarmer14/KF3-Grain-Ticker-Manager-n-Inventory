@@ -1,3 +1,11 @@
+# ReviewQueuePage.tsx - Complete Code
+
+**Location:** `src/pages/ReviewQueuePage.tsx`  
+**Action:** REPLACE existing file
+
+Copy all the code below:
+
+```typescript
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { findBestContract, createSpotSaleContract } from '../lib/contractMatcher';
@@ -529,3 +537,14 @@ export function ReviewQueuePage() {
     </div>
   );
 }
+```
+
+---
+
+## Deploy Steps:
+
+1. GitHub → Your repo → `src/pages/ReviewQueuePage.tsx`
+2. Click "Edit" (pencil icon)
+3. Select All → Delete everything
+4. Paste the code above
+5. Commit: "Add AI and smart features to Review Queue"
