@@ -1,3 +1,11 @@
+# read-ticket.ts - AI Function Code
+
+**Location:** `netlify/functions/read-ticket.ts`  
+**Action:** CREATE NEW FILE
+
+Copy all the code below:
+
+```typescript
 // Netlify Function: AI Ticket Reader with Usage Tracking
 // Location: netlify/functions/read-ticket.ts
 
@@ -147,3 +155,13 @@ Extract whatever you can see. If you can't read something, use null.`,
     };
   }
 };
+```
+
+---
+
+## Deploy Steps:
+
+1. GitHub → Your repo
+2. Create file: `netlify/functions/read-ticket.ts`
+3. Paste the code above
+4. Commit: "Add AI ticket reader function"
