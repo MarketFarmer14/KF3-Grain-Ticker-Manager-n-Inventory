@@ -1,3 +1,9 @@
+# contractMatcher.ts
+
+**Location:** `src/lib/contractMatcher.ts`  
+**Action:** CREATE NEW FILE
+
+```typescript
 // Smart contract matching utility with fuzzy location matching
 
 import type { Database } from './database.types';
@@ -92,3 +98,4 @@ export function createSpotSaleContract(ticket: {
     crop_year: ticket.crop_year,
   };
 }
+```
