@@ -1,3 +1,4 @@
+```typescript
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 
@@ -232,4 +233,4 @@ export const InventoryPage: React.FC = () => {
       </div>
     </div>
   );
-};
+}
