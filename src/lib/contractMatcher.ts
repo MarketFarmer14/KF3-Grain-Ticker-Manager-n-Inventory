@@ -90,4 +90,3 @@ export function createSpotSaleContract(ticket: {
     crop_year: ticket.crop_year,
   };
 }
-```
