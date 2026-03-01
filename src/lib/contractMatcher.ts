@@ -42,7 +42,7 @@ export function findBestContract(
     const notFilled = (c.percent_filled || 0) < 100; // Skip 100% filled contracts
     const notSpot = !c.is_spot_sale; // Skip spot sales
 
-    return personMatch && cropMatch && throughMatch && locationMatch && notFilled && !notSpot;
+    return personMatch && cropMatch && throughMatch && locationMatch && notFilled && notSpot;
   });
 
   if (matchingContracts.length === 0) {

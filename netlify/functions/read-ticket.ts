@@ -1,11 +1,3 @@
-# read-ticket.ts - AI Function Code
-
-**Location:** `netlify/functions/read-ticket.ts`  
-**Action:** CREATE NEW FILE
-
-Copy all the code below:
-
-```typescript
 // Netlify Function: AI Ticket Reader with Usage Tracking
 // Location: netlify/functions/read-ticket.ts
 
@@ -51,7 +43,7 @@ export const handler = async (event: any) => {
     if (currentUsage >= MONTHLY_LIMIT) {
       return {
         statusCode: 429,
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           error: 'Monthly AI limit reached',
           usage: currentUsage,
           limit: MONTHLY_LIMIT,
@@ -74,7 +66,7 @@ export const handler = async (event: any) => {
           content: [
             {
               type: 'text',
-              text: `You are reading a grain delivery ticket. Extract ALL visible information and return it as JSON. 
+              text: `You are reading a grain delivery ticket. Extract ALL visible information and return it as JSON.
 
 CRITICAL RULES:
 - Return ONLY valid JSON, no markdown, no explanations
@@ -113,7 +105,7 @@ Extract whatever you can see. If you can't read something, use null.`,
     });
 
     const content = response.choices[0].message.content;
-    
+
     // Parse the JSON response
     let extractedData;
     try {
@@ -123,9 +115,9 @@ Extract whatever you can see. If you can't read something, use null.`,
       console.error('Failed to parse OpenAI response:', content);
       return {
         statusCode: 500,
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           error: 'Failed to parse AI response',
-          rawResponse: content 
+          rawResponse: content
         }),
       };
     }
@@ -148,9 +140,9 @@ Extract whatever you can see. If you can't read something, use null.`,
     console.error('OpenAI API Error:', error);
     return {
       statusCode: 500,
-      body: JSON.stringify({ 
-        error: 'AI processing failed', 
-        details: error.message 
+      body: JSON.stringify({
+        error: 'AI processing failed',
+        details: error.message
       }),
     };
   }
