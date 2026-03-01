@@ -147,8 +147,8 @@ export function ReviewQueuePage() {
       });
 
       if (!aiResponse.ok) {
-        const error = await aiResponse.json();
-        throw new Error(error.error || 'AI reading failed');
+        const errData = await aiResponse.json();
+        throw new Error(errData.details || errData.error || 'AI reading failed');
       }
 
       const extractedData = await aiResponse.json();
