@@ -13,43 +13,61 @@ export const handler = async (event: any) => {
   }
 
   try {
-    const { imageBase64 } = JSON.parse(event.body);
+    const { imageUrl, imageBase64 } = JSON.parse(event.body);
 
-    if (!imageBase64) {
+    if (!imageUrl && !imageBase64) {
       return {
         statusCode: 400,
-        body: JSON.stringify({ error: 'No image provided' }),
+        body: JSON.stringify({ error: 'No image provided. Send imageUrl or imageBase64.' }),
       };
     }
 
-    // Initialize Supabase
-    const supabase = createClient(
-      process.env.VITE_SUPABASE_URL!,
-      process.env.VITE_SUPABASE_ANON_KEY!
-    );
-
-    // Check usage limit
-    const { data: usageData, error: usageError } = await supabase
-      .rpc('get_ai_usage');
-
-    if (usageError) {
-      console.error('Usage check failed:', usageError);
-      // Continue anyway - don't block on usage check failure
+    // Build the image content for OpenAI Vision API
+    // Prefer URL (avoids CORS, smaller payload) - fall back to base64
+    let imageContent: { type: 'image_url'; image_url: { url: string } };
+    if (imageUrl) {
+      imageContent = {
+        type: 'image_url',
+        image_url: { url: imageUrl },
+      };
+    } else {
+      imageContent = {
+        type: 'image_url',
+        image_url: { url: `data:image/jpeg;base64,${imageBase64}` },
+      };
     }
 
-    const currentUsage = usageData?.[0]?.count || 0;
-    const MONTHLY_LIMIT = 500;
+    // Initialize Supabase for usage tracking
+    const supabaseUrl = process.env.VITE_SUPABASE_URL;
+    const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
 
-    if (currentUsage >= MONTHLY_LIMIT) {
-      return {
-        statusCode: 429,
-        body: JSON.stringify({
-          error: 'Monthly AI limit reached',
-          usage: currentUsage,
-          limit: MONTHLY_LIMIT,
-          resetDate: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1).toISOString()
-        }),
-      };
+    let currentUsage = 0;
+    let supabase: any = null;
+
+    if (supabaseUrl && supabaseKey) {
+      supabase = createClient(supabaseUrl, supabaseKey);
+
+      // Check usage limit
+      const { data: usageData, error: usageError } = await supabase
+        .rpc('get_ai_usage');
+
+      if (usageError) {
+        console.error('Usage check failed:', usageError);
+      } else {
+        currentUsage = usageData?.[0]?.count || 0;
+      }
+
+      const MONTHLY_LIMIT = 500;
+      if (currentUsage >= MONTHLY_LIMIT) {
+        return {
+          statusCode: 429,
+          body: JSON.stringify({
+            error: 'Monthly AI limit reached (500/month)',
+            usage: currentUsage,
+            limit: MONTHLY_LIMIT,
+          }),
+        };
+      }
     }
 
     // Initialize OpenAI
@@ -92,12 +110,7 @@ Expected JSON format:
 
 Extract whatever you can see. If you can't read something, use null.`,
             },
-            {
-              type: 'image_url',
-              image_url: {
-                url: `data:image/jpeg;base64,${imageBase64}`,
-              },
-            },
+            imageContent,
           ],
         },
       ],
@@ -123,7 +136,9 @@ Extract whatever you can see. If you can't read something, use null.`,
     }
 
     // Increment usage counter (do this AFTER successful AI call)
-    await supabase.rpc('increment_ai_usage');
+    if (supabase) {
+      await supabase.rpc('increment_ai_usage');
+    }
 
     return {
       statusCode: 200,
@@ -137,7 +152,7 @@ Extract whatever you can see. If you can't read something, use null.`,
       }),
     };
   } catch (error: any) {
-    console.error('OpenAI API Error:', error);
+    console.error('AI Error:', error);
     return {
       statusCode: 500,
       body: JSON.stringify({
