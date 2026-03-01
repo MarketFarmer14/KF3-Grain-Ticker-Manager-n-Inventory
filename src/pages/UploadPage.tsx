@@ -76,10 +76,10 @@ export function UploadPage() {
         {
           ticket_date: new Date().toISOString().split('T')[0],
           person: person,
-          crop: '',
+          crop: 'Corn',
           bushels: 0,
           delivery_location: '',
-          through: '',
+          through: 'Akron',
           image_url: imageUrl,
           status: 'needs_review',
           origin: 'upload_page',
