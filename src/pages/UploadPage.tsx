@@ -1,3 +1,9 @@
+# UploadPage.tsx - Complete Code
+
+**Location:** `src/pages/UploadPage.tsx`  
+**Action:** REPLACE existing file
+
+```typescript
 import React, { useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { Camera } from 'lucide-react';
@@ -285,3 +291,4 @@ export function UploadPage() {
     </div>
   );
 }
+```
