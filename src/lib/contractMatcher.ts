@@ -1,11 +1,3 @@
-# contractMatcher.ts
-
-**Location:** `src/lib/contractMatcher.ts`  
-**Action:** CREATE NEW FILE
-
-```typescript
-// Smart contract matching utility with fuzzy location matching
-
 import type { Database } from './database.types';
 
 type Contract = Database['public']['Tables']['contracts']['Row'];
