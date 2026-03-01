@@ -1,4 +1,3 @@
-```typescript
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 
