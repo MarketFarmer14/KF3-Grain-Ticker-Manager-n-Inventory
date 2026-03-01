@@ -1,4 +1,3 @@
-```typescript
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { findBestContract, createSpotSaleContract } from '../lib/contractMatcher';
