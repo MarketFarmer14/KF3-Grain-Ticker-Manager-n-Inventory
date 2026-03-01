@@ -1,10 +1,3 @@
-# ReviewQueuePage.tsx - Complete Code
-
-**Location:** `src/pages/ReviewQueuePage.tsx`  
-**Action:** REPLACE existing file
-
-Copy all the code below:
-
 ```typescript
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
