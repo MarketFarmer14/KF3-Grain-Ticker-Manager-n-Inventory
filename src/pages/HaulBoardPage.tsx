@@ -1,8 +1,3 @@
-# HaulBoardPage.tsx - Complete Code
-
-**Location:** `src/pages/HaulBoardPage.tsx`  
-**Action:** REPLACE existing file
-
 ```typescript
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
@@ -317,4 +312,3 @@ export function HaulBoardPage() {
     </div>
   );
 }
-```
