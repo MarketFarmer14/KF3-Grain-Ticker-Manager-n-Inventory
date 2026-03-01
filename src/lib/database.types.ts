@@ -1,9 +1,3 @@
-# database.types_FINAL.ts
-
-**Location:** `src/lib/database.types.ts`  
-**Action:** REPLACE existing file
-
-```typescript
 export interface Database {
   public: {
     Tables: {
@@ -89,4 +83,3 @@ export interface Database {
     };
   };
 }
-```
