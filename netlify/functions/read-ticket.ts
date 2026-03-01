@@ -4,6 +4,16 @@
 import OpenAI from 'openai';
 import { createClient } from '@supabase/supabase-js';
 
+async function fetchImageAsBase64(url: string): Promise<string> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch image from ${url}: ${response.status}`);
+  }
+  const arrayBuffer = await response.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+  return buffer.toString('base64');
+}
+
 export const handler = async (event: any) => {
   if (event.httpMethod !== 'POST') {
     return {
@@ -22,19 +32,13 @@ export const handler = async (event: any) => {
       };
     }
 
-    // Build the image content for OpenAI Vision API
-    // Prefer URL (avoids CORS, smaller payload) - fall back to base64
-    let imageContent: { type: 'image_url'; image_url: { url: string } };
-    if (imageUrl) {
-      imageContent = {
-        type: 'image_url',
-        image_url: { url: imageUrl },
-      };
+    // Always use base64 for OpenAI - fetch the image server-side if we got a URL
+    let base64Data: string;
+    if (imageBase64) {
+      base64Data = imageBase64;
     } else {
-      imageContent = {
-        type: 'image_url',
-        image_url: { url: `data:image/jpeg;base64,${imageBase64}` },
-      };
+      // Fetch image server-side (avoids CORS AND avoids OpenAI needing to reach R2)
+      base64Data = await fetchImageAsBase64(imageUrl);
     }
 
     // Initialize Supabase for usage tracking
@@ -70,12 +74,20 @@ export const handler = async (event: any) => {
       }
     }
 
+    // Check OpenAI key exists
+    if (!process.env.OPENAI_API_KEY) {
+      return {
+        statusCode: 500,
+        body: JSON.stringify({ error: 'OPENAI_API_KEY not configured on server' }),
+      };
+    }
+
     // Initialize OpenAI
     const openai = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
     });
 
-    // Call Vision API
+    // Call Vision API with base64 image
     const response = await openai.chat.completions.create({
       model: 'gpt-4o',
       messages: [
@@ -110,7 +122,12 @@ Expected JSON format:
 
 Extract whatever you can see. If you can't read something, use null.`,
             },
-            imageContent,
+            {
+              type: 'image_url',
+              image_url: {
+                url: `data:image/jpeg;base64,${base64Data}`,
+              },
+            },
           ],
         },
       ],
