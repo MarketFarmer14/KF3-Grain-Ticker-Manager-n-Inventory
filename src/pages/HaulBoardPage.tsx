@@ -15,6 +15,7 @@ export function HaulBoardPage() {
   const [showCompleted, setShowCompleted] = useState(false);
   const [sortField, setSortField] = useState<SortField>('end_date');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+  const [viewMode, setViewMode] = useState<'cards' | 'list'>('cards');
 
   const currentYear = localStorage.getItem('grain_ticket_year') || new Date().getFullYear().toString();
 
@@ -192,6 +193,13 @@ export function HaulBoardPage() {
               Show Completed Contracts
             </label>
           </div>
+
+          <button
+            onClick={() => setViewMode(viewMode === 'cards' ? 'list' : 'cards')}
+            className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg border border-gray-600 font-medium"
+          >
+            {viewMode === 'cards' ? 'List View' : 'Card View'}
+          </button>
         </div>
       </div>
 
@@ -223,19 +231,19 @@ export function HaulBoardPage() {
         </button>
       </div>
 
-      {/* Contract Cards */}
+      {/* Content */}
       {filteredContracts.length === 0 ? (
         <div className="text-center text-white mt-8">
           No active contracts with remaining bushels for {cropFilter === 'All' ? 'any crop' : cropFilter}.
         </div>
-      ) : (
+      ) : viewMode === 'cards' ? (
+        /* ===== CARD VIEW ===== */
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {filteredContracts.map((contract) => (
             <div
               key={contract.id}
               className={`rounded-lg border-2 p-4 ${getUrgencyColor(contract)}`}
             >
-              {/* Header */}
               <div className="flex justify-between items-start mb-3">
                 <div>
                   <div className="text-white font-bold text-lg">#{contract.contract_number}</div>
@@ -247,7 +255,6 @@ export function HaulBoardPage() {
                 </div>
               </div>
 
-              {/* Location Info */}
               <div className="mb-3 text-sm">
                 <div className="text-gray-300">
                   <span className="font-medium">Through:</span> {contract.through || '-'}
@@ -257,7 +264,6 @@ export function HaulBoardPage() {
                 </div>
               </div>
 
-              {/* Progress Bar */}
               <div className="mb-3">
                 <div className="flex justify-between text-xs text-gray-300 mb-1">
                   <span>{contract.percent_filled?.toFixed(1)}% Complete</span>
@@ -271,7 +277,6 @@ export function HaulBoardPage() {
                 </div>
               </div>
 
-              {/* Bushels */}
               <div className="grid grid-cols-3 gap-2 text-center mb-3">
                 <div>
                   <div className="text-gray-400 text-xs">Contracted</div>
@@ -293,7 +298,6 @@ export function HaulBoardPage() {
                 </div>
               </div>
 
-              {/* Delivery Window */}
               {(contract.start_date || contract.end_date) && (
                 <div className="text-xs text-gray-400 border-t border-gray-600 pt-2">
                   <div className="flex justify-between">
@@ -306,6 +310,102 @@ export function HaulBoardPage() {
               )}
             </div>
           ))}
+        </div>
+      ) : (
+        /* ===== LIST VIEW ===== */
+        <div className="overflow-x-auto">
+          <table className="w-full bg-gray-800 rounded-lg">
+            <thead className="bg-gray-700">
+              <tr>
+                <th className="px-3 py-3 text-left text-white cursor-pointer hover:bg-gray-600" onClick={() => handleSort('contract_number')}>
+                  Contract # <SortIcon field="contract_number" />
+                </th>
+                <th className="px-3 py-3 text-left text-white cursor-pointer hover:bg-gray-600" onClick={() => handleSort('owner')}>
+                  Owner <SortIcon field="owner" />
+                </th>
+                <th className="px-3 py-3 text-left text-white cursor-pointer hover:bg-gray-600" onClick={() => handleSort('crop')}>
+                  Crop <SortIcon field="crop" />
+                </th>
+                <th className="px-3 py-3 text-left text-white cursor-pointer hover:bg-gray-600" onClick={() => handleSort('through')}>
+                  Through <SortIcon field="through" />
+                </th>
+                <th className="px-3 py-3 text-left text-white cursor-pointer hover:bg-gray-600" onClick={() => handleSort('destination')}>
+                  Location <SortIcon field="destination" />
+                </th>
+                <th className="px-3 py-3 text-right text-white cursor-pointer hover:bg-gray-600" onClick={() => handleSort('remaining_bushels')}>
+                  Remaining <SortIcon field="remaining_bushels" />
+                </th>
+                <th className="px-3 py-3 text-right text-white cursor-pointer hover:bg-gray-600" onClick={() => handleSort('percent_filled')}>
+                  % Filled <SortIcon field="percent_filled" />
+                </th>
+                <th className="px-3 py-3 text-left text-white cursor-pointer hover:bg-gray-600" onClick={() => handleSort('end_date')}>
+                  Deadline <SortIcon field="end_date" />
+                </th>
+                <th className="px-3 py-3 text-left text-white">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredContracts.map((contract) => {
+                const isCorn = contract.crop === 'Corn';
+                const percentFilled = contract.percent_filled || 0;
+                const endDate = contract.end_date ? new Date(contract.end_date) : null;
+                const daysLeft = endDate ? Math.ceil((endDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)) : 999;
+                const isUrgent = daysLeft < 7 && percentFilled < 100;
+                const isComplete = percentFilled >= 100;
+
+                const rowBgClass = isComplete
+                  ? 'bg-gray-700 bg-opacity-30'
+                  : isUrgent
+                  ? 'bg-red-900 bg-opacity-30'
+                  : isCorn
+                  ? 'bg-yellow-900 bg-opacity-20'
+                  : 'bg-green-900 bg-opacity-20';
+
+                return (
+                  <tr key={contract.id} className={`border-t border-gray-700 ${rowBgClass}`}>
+                    <td className="px-3 py-2 text-white font-semibold">
+                      #{contract.contract_number}
+                      {contract.is_spot_sale && (
+                        <span className="ml-1 px-1 py-0.5 bg-purple-600 text-white text-xs rounded">SPOT</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-white">{contract.owner || '-'}</td>
+                    <td className="px-3 py-2 text-white font-semibold">{contract.crop}</td>
+                    <td className="px-3 py-2 text-white">{contract.through || '-'}</td>
+                    <td className="px-3 py-2 text-white">{contract.destination}</td>
+                    <td className="px-3 py-2 text-right text-white">{contract.remaining_bushels.toLocaleString()}</td>
+                    <td className="px-3 py-2 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <div className="w-16 bg-gray-700 rounded-full h-2">
+                          <div
+                            className={`h-2 rounded-full ${getProgressBarColor(contract.percent_filled)}`}
+                            style={{ width: `${Math.min(percentFilled, 100)}%` }}
+                          ></div>
+                        </div>
+                        <span className="text-white text-sm w-12 text-right">{percentFilled.toFixed(0)}%</span>
+                      </div>
+                    </td>
+                    <td className="px-3 py-2 text-white text-sm">
+                      {contract.end_date ? new Date(contract.end_date).toLocaleDateString() : '—'}
+                    </td>
+                    <td className="px-3 py-2">
+                      <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                        isComplete ? 'bg-gray-600 text-gray-300' :
+                        isUrgent ? 'bg-red-600 text-white' :
+                        daysLeft <= 14 ? 'bg-yellow-600 text-white' :
+                        'bg-green-600 text-white'
+                      }`}>
+                        {isComplete ? 'Complete' :
+                         daysLeft < 0 ? `${Math.abs(daysLeft)}d overdue` :
+                         daysLeft === 0 ? 'Due today' :
+                         `${daysLeft}d left`}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
     </div>

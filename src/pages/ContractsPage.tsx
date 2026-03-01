@@ -6,7 +6,7 @@ import * as XLSX from 'xlsx';
 type Contract = Database['public']['Tables']['contracts']['Row'];
 type ContractInsert = Database['public']['Tables']['contracts']['Insert'];
 
-type SortField = 'priority' | 'contract_number' | 'crop' | 'owner' | 'through' | 'destination' | 'contracted_bushels' | 'delivered_bushels' | 'remaining_bushels' | 'percent_filled';
+type SortField = 'priority' | 'contract_number' | 'crop' | 'owner' | 'through' | 'destination' | 'contracted_bushels' | 'delivered_bushels' | 'remaining_bushels' | 'percent_filled' | 'start_date' | 'end_date';
 type SortDirection = 'asc' | 'desc';
 
 export function ContractsPage() {
@@ -437,6 +437,18 @@ export function ContractsPage() {
               >
                 % Filled <SortIcon field="percent_filled" />
               </th>
+              <th
+                className="px-4 py-3 text-left text-white cursor-pointer hover:bg-gray-600"
+                onClick={() => handleSort('start_date')}
+              >
+                Window Start <SortIcon field="start_date" />
+              </th>
+              <th
+                className="px-4 py-3 text-left text-white cursor-pointer hover:bg-gray-600"
+                onClick={() => handleSort('end_date')}
+              >
+                Window End <SortIcon field="end_date" />
+              </th>
               <th className="px-4 py-3 text-center text-white">Actions</th>
             </tr>
           </thead>
@@ -471,6 +483,12 @@ export function ContractsPage() {
                   <td className="px-4 py-3 text-right text-white">{contract.delivered_bushels.toLocaleString()}</td>
                   <td className="px-4 py-3 text-right text-white">{contract.remaining_bushels.toLocaleString()}</td>
                   <td className="px-4 py-3 text-right text-white">{contract.percent_filled?.toFixed(1)}%</td>
+                  <td className="px-4 py-3 text-white text-sm">
+                    {contract.start_date ? new Date(contract.start_date).toLocaleDateString() : '—'}
+                  </td>
+                  <td className="px-4 py-3 text-white text-sm">
+                    {contract.end_date ? new Date(contract.end_date).toLocaleDateString() : '—'}
+                  </td>
                   <td className="px-4 py-3 text-center">
                     <button
                       onClick={() => openEditModal(contract)}
