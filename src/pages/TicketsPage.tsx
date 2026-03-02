@@ -1,9 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import { PERSON_OPTIONS } from '../lib/constants';
+import { exportTicketsToExcel } from '../lib/export';
+import { Download } from 'lucide-react';
 import type { Database } from '../lib/database.types';
 
 type Ticket = Database['public']['Tables']['tickets']['Row'];
+type SortField = 'ticket_date' | 'ticket_number' | 'person' | 'crop' | 'bushels' | 'delivery_location' | 'through' | 'truck' | 'dockage' | 'status';
+type SortDir = 'asc' | 'desc';
 
 interface EditState {
   ticket_date: string;
@@ -42,8 +46,55 @@ export function TicketsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editState, setEditState] = useState<EditState | null>(null);
   const [saving, setSaving] = useState(false);
+  const [sortField, setSortField] = useState<SortField>('ticket_date');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
 
   const currentYear = localStorage.getItem('grain_ticket_year') || new Date().getFullYear().toString();
+
+  const toggleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDir('asc');
+    }
+  };
+
+  const sortIndicator = (field: SortField) =>
+    sortField === field ? (sortDir === 'asc' ? ' \u25B2' : ' \u25BC') : '';
+
+  const sortedTickets = useMemo(() => {
+    return [...tickets].sort((a, b) => {
+      let aVal: any, bVal: any;
+      switch (sortField) {
+        case 'ticket_date': aVal = a.ticket_date; bVal = b.ticket_date; break;
+        case 'ticket_number': aVal = a.ticket_number || ''; bVal = b.ticket_number || ''; break;
+        case 'person': aVal = a.person; bVal = b.person; break;
+        case 'crop': aVal = a.crop; bVal = b.crop; break;
+        case 'bushels': aVal = a.bushels; bVal = b.bushels; break;
+        case 'delivery_location': aVal = a.delivery_location; bVal = b.delivery_location; break;
+        case 'through': aVal = a.through; bVal = b.through; break;
+        case 'truck': aVal = a.truck || ''; bVal = b.truck || ''; break;
+        case 'dockage': aVal = (a as any).dockage || 0; bVal = (b as any).dockage || 0; break;
+        case 'status': aVal = a.status; bVal = b.status; break;
+        default: aVal = ''; bVal = '';
+      }
+      if (typeof aVal === 'number' && typeof bVal === 'number') {
+        return sortDir === 'asc' ? aVal - bVal : bVal - aVal;
+      }
+      const cmp = String(aVal).localeCompare(String(bVal));
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+  }, [tickets, sortField, sortDir]);
+
+  const handleExport = () => {
+    const approved = tickets.filter((t) => t.status === 'approved');
+    if (approved.length === 0) {
+      alert('No approved tickets to export.');
+      return;
+    }
+    exportTicketsToExcel(approved, `grain_tickets_${currentYear}.xlsx`);
+  };
 
   useEffect(() => {
     fetchTickets();
@@ -172,16 +223,27 @@ export function TicketsPage() {
         <h1 className="text-3xl font-bold text-white">
           {showTrash ? `Trash (${currentYear})` : `Tickets (${currentYear})`}
         </h1>
-        <button
-          onClick={() => setShowTrash(!showTrash)}
-          className={`px-4 py-2 rounded-lg font-semibold ${
-            showTrash
-              ? 'bg-green-600 hover:bg-green-700 text-white'
-              : 'bg-gray-700 hover:bg-gray-600 text-white'
-          }`}
-        >
-          {showTrash ? '\u2190 Back to Tickets' : 'View Trash'}
-        </button>
+        <div className="flex gap-2">
+          {!showTrash && (
+            <button
+              onClick={handleExport}
+              className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold"
+            >
+              <Download size={18} />
+              Export Approved
+            </button>
+          )}
+          <button
+            onClick={() => setShowTrash(!showTrash)}
+            className={`px-4 py-2 rounded-lg font-semibold ${
+              showTrash
+                ? 'bg-green-600 hover:bg-green-700 text-white'
+                : 'bg-gray-700 hover:bg-gray-600 text-white'
+            }`}
+          >
+            {showTrash ? '\u2190 Back to Tickets' : 'View Trash'}
+          </button>
+        </div>
       </div>
 
       {tickets.length === 0 ? (
@@ -193,22 +255,32 @@ export function TicketsPage() {
           <table className="w-full bg-gray-800 rounded-lg">
             <thead className="bg-gray-700">
               <tr>
-                <th className="px-4 py-3 text-left text-white">Date</th>
-                <th className="px-4 py-3 text-left text-white">Ticket #</th>
-                <th className="px-4 py-3 text-left text-white">Person</th>
-                <th className="px-4 py-3 text-left text-white">Crop</th>
-                <th className="px-4 py-3 text-right text-white">Bushels</th>
-                <th className="px-4 py-3 text-left text-white">Location</th>
-                <th className="px-4 py-3 text-left text-white">Through</th>
-                <th className="px-4 py-3 text-left text-white">Truck</th>
-                <th className="px-4 py-3 text-right text-white">Dockage</th>
-                <th className="px-4 py-3 text-left text-white">Status</th>
+                {([
+                  ['ticket_date', 'Date', 'text-left'],
+                  ['ticket_number', 'Ticket #', 'text-left'],
+                  ['person', 'Person', 'text-left'],
+                  ['crop', 'Crop', 'text-left'],
+                  ['bushels', 'Bushels', 'text-right'],
+                  ['delivery_location', 'Location', 'text-left'],
+                  ['through', 'Through', 'text-left'],
+                  ['truck', 'Truck', 'text-left'],
+                  ['dockage', 'Dockage', 'text-right'],
+                  ['status', 'Status', 'text-left'],
+                ] as [SortField, string, string][]).map(([field, label, align]) => (
+                  <th
+                    key={field}
+                    onClick={() => toggleSort(field)}
+                    className={`px-4 py-3 ${align} text-white cursor-pointer hover:bg-gray-600 select-none`}
+                  >
+                    {label}{sortIndicator(field)}
+                  </th>
+                ))}
                 {showTrash && <th className="px-4 py-3 text-left text-white">Deleted</th>}
                 <th className="px-4 py-3 text-center text-white">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {tickets.map((ticket) => {
+              {sortedTickets.map((ticket) => {
                 const isCorn = ticket.crop === 'Corn';
                 const editing = isEditing(ticket.id);
                 const rowBgClass = showTrash
