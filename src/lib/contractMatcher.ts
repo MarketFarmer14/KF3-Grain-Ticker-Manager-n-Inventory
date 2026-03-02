@@ -71,6 +71,7 @@ export function createSpotSaleContract(ticket: {
   delivery_location: string;
   ticket_date: string;
   crop_year: string;
+  bushels?: number;
 }) {
   const date = new Date(ticket.ticket_date).toLocaleDateString();
   return {
@@ -79,7 +80,7 @@ export function createSpotSaleContract(ticket: {
     owner: ticket.person,
     through: ticket.through,
     destination: ticket.delivery_location,
-    contracted_bushels: 0, // Spot sales have no contracted amount
+    contracted_bushels: ticket.bushels || 1, // Must be > 0 for CHECK constraint
     start_date: ticket.ticket_date,
     end_date: ticket.ticket_date,
     priority: 10, // Lowest priority

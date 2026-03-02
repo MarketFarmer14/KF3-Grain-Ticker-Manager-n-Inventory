@@ -264,6 +264,7 @@ export function ReviewQueuePage() {
         delivery_location: edit.delivery_location,
         ticket_date: edit.ticket_date,
         crop_year: currentYear,
+        bushels: parseFloat(edit.bushels) || 1,
       });
 
       const { data: newContract, error: contractError } = await supabase
@@ -362,6 +363,7 @@ export function ReviewQueuePage() {
           delivery_location: edit?.delivery_location || selectedTicket.delivery_location,
           ticket_date: edit?.ticket_date || selectedTicket.ticket_date,
           crop_year: selectedTicket.crop_year,
+          bushels: parseFloat(edit?.bushels || '') || selectedTicket.bushels || 1,
         });
 
         const { data: newContract, error: contractError } = await supabase
@@ -413,6 +415,7 @@ export function ReviewQueuePage() {
         delivery_location: edit?.delivery_location || selectedTicket.delivery_location,
         ticket_date: edit?.ticket_date || selectedTicket.ticket_date,
         crop_year: selectedTicket.crop_year,
+        bushels: parseFloat(edit?.bushels || '') || selectedTicket.bushels || 1,
       });
 
       const { data: newContract, error: contractError } = await supabase
