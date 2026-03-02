@@ -119,6 +119,7 @@ export function TicketsPage() {
                 <th className="px-4 py-3 text-left text-white">Location</th>
                 <th className="px-4 py-3 text-left text-white">Through</th>
                 <th className="px-4 py-3 text-left text-white">Truck</th>
+                <th className="px-4 py-3 text-right text-white">Dockage</th>
                 <th className="px-4 py-3 text-left text-white">Status</th>
                 {showTrash && <th className="px-4 py-3 text-left text-white">Deleted</th>}
                 <th className="px-4 py-3 text-center text-white">Actions</th>
@@ -143,13 +144,21 @@ export function TicketsPage() {
                     <td className="px-4 py-3 text-white">
                       {new Date(ticket.ticket_date).toLocaleDateString()}
                     </td>
-                    <td className="px-4 py-3 text-white">{ticket.ticket_number || '-'}</td>
+                    <td className="px-4 py-3 text-white">
+                      {ticket.ticket_number || '-'}
+                      {ticket.duplicate_flag && (
+                        <span className="ml-1 px-1.5 py-0.5 bg-orange-600 rounded text-xs font-semibold" title={`Duplicate group: ${ticket.duplicate_group}`}>DUP</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-white">{ticket.person}</td>
                     <td className="px-4 py-3 text-white font-semibold">{ticket.crop}</td>
                     <td className="px-4 py-3 text-right text-white">{ticket.bushels.toLocaleString()}</td>
                     <td className="px-4 py-3 text-white">{ticket.delivery_location}</td>
                     <td className="px-4 py-3 text-white">{ticket.through}</td>
                     <td className="px-4 py-3 text-white">{ticket.truck || '-'}</td>
+                    <td className="px-4 py-3 text-right text-white">
+                      {(ticket as any).dockage ? `${(ticket as any).dockage}%` : '-'}
+                    </td>
                     <td className="px-4 py-3 text-white">
                       <span
                         className={`px-2 py-1 rounded text-xs font-semibold ${

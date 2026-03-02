@@ -18,6 +18,7 @@ interface EditState {
   through: string;
   truck: string;
   moisture_percent: string;
+  dockage: string;
   notes: string;
 }
 
@@ -32,6 +33,7 @@ function ticketToEdit(ticket: Ticket): EditState {
     through: ticket.through || '',
     truck: ticket.truck || '',
     moisture_percent: ticket.moisture_percent ? ticket.moisture_percent.toString() : '',
+    dockage: (ticket as any).dockage ? (ticket as any).dockage.toString() : '',
     notes: ticket.notes || '',
   };
 }
@@ -120,6 +122,7 @@ export function ReviewQueuePage() {
         through: edit.through,
         truck: edit.truck || null,
         moisture_percent: edit.moisture_percent ? parseFloat(edit.moisture_percent) : null,
+        dockage: edit.dockage ? parseFloat(edit.dockage) : null,
         notes: edit.notes || null,
       })
       .eq('id', ticketId);
@@ -173,6 +176,7 @@ export function ReviewQueuePage() {
             through: extractedData.through || current.through,
             truck: extractedData.truck || current.truck,
             moisture_percent: extractedData.moisture_percent ? extractedData.moisture_percent.toString() : current.moisture_percent,
+            dockage: extractedData.dockage ? extractedData.dockage.toString() : current.dockage,
             notes: extractedData.notes || current.notes,
           },
         };
@@ -189,6 +193,7 @@ export function ReviewQueuePage() {
       if (extractedData.through) updates.through = extractedData.through;
       if (extractedData.truck) updates.truck = extractedData.truck;
       if (extractedData.moisture_percent) updates.moisture_percent = extractedData.moisture_percent;
+      if (extractedData.dockage) updates.dockage = extractedData.dockage;
       if (extractedData.notes) updates.notes = extractedData.notes;
 
       if (Object.keys(updates).length > 0) {
@@ -212,6 +217,32 @@ export function ReviewQueuePage() {
     if (!edit?.crop || !edit?.bushels || parseFloat(edit.bushels) === 0) {
       alert('Please fill in at least Crop and Bushels before approving.');
       return;
+    }
+
+    // Duplicate detection: check if ticket_number already exists for this crop year
+    if (edit.ticket_number) {
+      const { data: dupes } = await supabase
+        .from('tickets')
+        .select('id, ticket_number, person, ticket_date')
+        .eq('ticket_number', edit.ticket_number)
+        .eq('crop_year', currentYear)
+        .eq('deleted', false)
+        .neq('id', ticket.id);
+
+      if (dupes && dupes.length > 0) {
+        const dupeInfo = dupes.map(d => `${d.ticket_number} (${d.person}, ${d.ticket_date})`).join('\n');
+        const proceed = confirm(
+          `Possible duplicate! Ticket #${edit.ticket_number} already exists:\n${dupeInfo}\n\nApprove anyway?`
+        );
+        if (!proceed) return;
+
+        // Flag both as duplicates
+        const groupId = `DUP-${edit.ticket_number}-${currentYear}`;
+        await supabase
+          .from('tickets')
+          .update({ duplicate_flag: true, duplicate_group: groupId })
+          .in('id', [ticket.id, ...dupes.map(d => d.id)]);
+      }
     }
 
     // Use the edited values for contract matching
@@ -557,6 +588,17 @@ export function ReviewQueuePage() {
                         step="0.1"
                         value={edit.moisture_percent}
                         onChange={(e) => updateEdit(ticket.id, 'moisture_percent', e.target.value)}
+                        placeholder="—"
+                        className="w-full px-2 py-1.5 bg-gray-700 text-white rounded text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-gray-400 text-xs mb-1">Dockage %</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={edit.dockage}
+                        onChange={(e) => updateEdit(ticket.id, 'dockage', e.target.value)}
                         placeholder="—"
                         className="w-full px-2 py-1.5 bg-gray-700 text-white rounded text-sm"
                       />

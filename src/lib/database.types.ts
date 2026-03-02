@@ -21,6 +21,7 @@ export interface Database {
           notes: string | null;
           origin: string;
           moisture_percent: number | null;
+          dockage: number | null;
           crop_year: string;
           deleted: boolean;
           deleted_at: string | null;

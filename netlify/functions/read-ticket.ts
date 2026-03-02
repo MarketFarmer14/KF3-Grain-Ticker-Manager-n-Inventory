@@ -103,7 +103,8 @@ Rules:
 - Date format: YYYY-MM-DD
 - Crop: exactly "Corn" or "Soybeans"
 - Through: exactly "Akron", "RVC", "Cargill", "ADM", or null
-- Bushels and moisture_percent must be numbers
+- Bushels, moisture_percent, and dockage must be numbers
+- Dockage/shrink is a percentage deducted for foreign material
 
 {
   "ticket_date": "YYYY-MM-DD or null",
@@ -115,6 +116,7 @@ Rules:
   "through": "Akron or RVC or Cargill or ADM or null",
   "truck": "string or null",
   "moisture_percent": number or null,
+  "dockage": number or null,
   "notes": "any extra info or null"
 }`,
             },
