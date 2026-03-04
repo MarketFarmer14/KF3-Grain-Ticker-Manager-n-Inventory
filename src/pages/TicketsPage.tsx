@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
-import { PERSON_OPTIONS } from '../lib/constants';
+import { PERSON_OPTIONS, normalizeTicketFields } from '../lib/constants';
 import { exportTicketsToExcel } from '../lib/export';
 import { Download } from 'lucide-react';
 import type { Database } from '../lib/database.types';
@@ -135,16 +135,18 @@ export function TicketsPage() {
     if (!editingId || !editState) return;
     setSaving(true);
 
+    const normalized = normalizeTicketFields({ person: editState.person, crop: editState.crop, through: editState.through });
+
     const { error } = await supabase
       .from('tickets')
       .update({
         ticket_date: editState.ticket_date || new Date().toISOString().split('T')[0],
         ticket_number: editState.ticket_number || null,
-        person: editState.person,
-        crop: editState.crop,
+        person: normalized.person,
+        crop: normalized.crop,
         bushels: parseFloat(editState.bushels) || 0,
         delivery_location: editState.delivery_location,
-        through: editState.through,
+        through: normalized.through,
         truck: editState.truck || null,
         dockage: editState.dockage ? parseFloat(editState.dockage) : null,
         moisture_percent: editState.moisture_percent ? parseFloat(editState.moisture_percent) : null,
@@ -281,7 +283,7 @@ export function TicketsPage() {
             </thead>
             <tbody>
               {sortedTickets.map((ticket) => {
-                const isCorn = ticket.crop === 'Corn';
+                const isCorn = (ticket.crop || '').toLowerCase() === 'corn';
                 const editing = isEditing(ticket.id);
                 const rowBgClass = showTrash
                   ? 'bg-red-900 bg-opacity-20'

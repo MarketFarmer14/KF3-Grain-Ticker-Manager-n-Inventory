@@ -52,7 +52,7 @@ export function HaulBoardPage() {
 
     // Apply crop filter
     if (cropFilter !== 'All') {
-      filtered = filtered.filter(c => c.crop === cropFilter);
+      filtered = filtered.filter(c => (c.crop || '').toLowerCase() === cropFilter.toLowerCase());
     }
 
     // Apply sorting
@@ -88,7 +88,7 @@ export function HaulBoardPage() {
     const endDate = contract.end_date ? new Date(contract.end_date) : null;
     const today = new Date();
     const daysUntilEnd = endDate ? Math.ceil((endDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)) : 999;
-    const isCorn = contract.crop === 'Corn';
+    const isCorn = (contract.crop || '').toLowerCase() === 'corn';
 
     // Complete - gray regardless of crop
     if (percentFilled >= 100) return 'bg-gray-700 border-gray-600';
@@ -346,7 +346,7 @@ export function HaulBoardPage() {
             </thead>
             <tbody>
               {filteredContracts.map((contract) => {
-                const isCorn = contract.crop === 'Corn';
+                const isCorn = (contract.crop || '').toLowerCase() === 'corn';
                 const percentFilled = contract.percent_filled || 0;
                 const endDate = contract.end_date ? new Date(contract.end_date) : null;
                 const daysLeft = endDate ? Math.ceil((endDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)) : 999;

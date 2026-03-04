@@ -102,3 +102,35 @@ export const PERSON_OPTIONS = [
 ] as const;
 
 export const CROP_YEARS = ['2024', '2025', '2026', '2027', '2028'] as const;
+
+export const THROUGH_OPTIONS = ['Akron', 'RVC', 'Cargill', 'ADM'] as const;
+
+export const CROP_OPTIONS = ['Corn', 'Soybeans'] as const;
+
+// Title case a string: "soybeans" -> "Soybeans", "ADM" stays "ADM"
+function titleCase(s: string): string {
+  if (!s) return s;
+  return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+}
+
+// Match a value to a known list (case-insensitive), return the canonical version
+function matchToList(value: string, list: readonly string[]): string {
+  if (!value) return value;
+  const lower = value.trim().toLowerCase();
+  const match = list.find(item => item.toLowerCase() === lower);
+  return match || value.trim();
+}
+
+// Normalize all ticket fields to canonical casing so matching always works
+export function normalizeTicketFields(data: {
+  person?: string;
+  crop?: string;
+  through?: string;
+  [key: string]: any;
+}): typeof data {
+  const result = { ...data };
+  if (result.person) result.person = matchToList(result.person, PERSON_OPTIONS);
+  if (result.crop) result.crop = matchToList(result.crop, CROP_OPTIONS);
+  if (result.through) result.through = matchToList(result.through, THROUGH_OPTIONS);
+  return result;
+}

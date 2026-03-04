@@ -454,7 +454,7 @@ export function ContractsPage() {
           </thead>
           <tbody>
             {contracts.map((contract) => {
-              const isCorn = contract.crop === 'Corn';
+              const isCorn = (contract.crop || '').toLowerCase() === 'corn';
               const rowBgClass = isCorn ? 'bg-yellow-900 bg-opacity-20' : 'bg-green-900 bg-opacity-20';
               const hoverClass = isCorn ? 'hover:bg-yellow-900 hover:bg-opacity-30' : 'hover:bg-green-900 hover:bg-opacity-30';
               

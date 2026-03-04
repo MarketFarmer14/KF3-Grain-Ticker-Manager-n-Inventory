@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { findBestContract, createSpotSaleContract } from '../lib/contractMatcher';
 import { Sparkles } from 'lucide-react';
-import { PERSON_OPTIONS } from '../lib/constants';
+import { PERSON_OPTIONS, normalizeTicketFields } from '../lib/constants';
 import type { Database } from '../lib/database.types';
 
 type Ticket = Database['public']['Tables']['tickets']['Row'];
@@ -109,17 +109,20 @@ export function ReviewQueuePage() {
     const edit = edits[ticketId];
     if (!edit) return;
 
+    // Normalize person/crop/through to canonical casing before saving
+    const normalized = normalizeTicketFields({ person: edit.person, crop: edit.crop, through: edit.through });
+
     setSaving(ticketId);
     const { error } = await supabase
       .from('tickets')
       .update({
         ticket_date: edit.ticket_date || new Date().toISOString().split('T')[0],
         ticket_number: edit.ticket_number || null,
-        person: edit.person,
-        crop: edit.crop,
+        person: normalized.person,
+        crop: normalized.crop,
         bushels: parseFloat(edit.bushels) || 0,
         delivery_location: edit.delivery_location,
-        through: edit.through,
+        through: normalized.through,
         truck: edit.truck || null,
         moisture_percent: edit.moisture_percent ? parseFloat(edit.moisture_percent) : null,
         dockage: edit.dockage ? parseFloat(edit.dockage) : null,
@@ -154,7 +157,8 @@ export function ReviewQueuePage() {
         throw new Error(errData.details || errData.error || 'AI reading failed');
       }
 
-      const extractedData = await aiResponse.json();
+      const rawData = await aiResponse.json();
+      const extractedData = normalizeTicketFields(rawData);
 
       // Update usage display
       if (extractedData._usage) {
@@ -348,9 +352,9 @@ export function ReviewQueuePage() {
       const remainingContracts = contracts.filter(
         (c) =>
           c.id !== contract.id &&
-          c.owner === (edit?.person || selectedTicket.person) &&
-          c.crop === (edit?.crop || selectedTicket.crop) &&
-          c.through === (edit?.through || selectedTicket.through) &&
+          (c.owner || '').toLowerCase() === (edit?.person || selectedTicket.person || '').toLowerCase() &&
+          (c.crop || '').toLowerCase() === (edit?.crop || selectedTicket.crop || '').toLowerCase() &&
+          (c.through || '').toLowerCase() === (edit?.through || selectedTicket.through || '').toLowerCase() &&
           (c.percent_filled || 0) < 100
       );
 
