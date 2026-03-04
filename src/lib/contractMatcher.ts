@@ -20,9 +20,9 @@ export function findBestContract(
 ): MatchResult {
   // Filter contracts that match person, crop, and through
   const matchingContracts = contracts.filter((c) => {
-    const personMatch = c.owner === ticket.person;
-    const cropMatch = c.crop === ticket.crop;
-    const throughMatch = c.through === ticket.through;
+    const personMatch = (c.owner || '').toLowerCase() === (ticket.person || '').toLowerCase();
+    const cropMatch = (c.crop || '').toLowerCase() === (ticket.crop || '').toLowerCase();
+    const throughMatch = (c.through || '').toLowerCase() === (ticket.through || '').toLowerCase();
     const notFilled = (c.percent_filled || 0) < 100; // Skip 100% filled contracts
     const notSpot = !c.is_spot_sale; // Skip spot sales
 

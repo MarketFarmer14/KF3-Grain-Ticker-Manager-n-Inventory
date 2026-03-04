@@ -246,12 +246,6 @@ export function ReviewQueuePage() {
     }
 
     // Use the edited values for contract matching
-    const nonSpotContracts = contracts.filter(c => !c.is_spot_sale);
-    const debugInfo = nonSpotContracts.map(c =>
-      `Contract #${c.contract_number}: owner="${c.owner}" crop="${c.crop}" through="${c.through}" filled=${c.percent_filled}%`
-    ).join('\n');
-    alert(`DEBUG - Ticket values:\nperson="${edit.person}" crop="${edit.crop}" through="${edit.through}"\n\nAvailable contracts (${nonSpotContracts.length}):\n${debugInfo || 'NONE'}\n\nCrop year: ${currentYear}`);
-
     const matchResult = findBestContract(
       {
         person: edit.person,
