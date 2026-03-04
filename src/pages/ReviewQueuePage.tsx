@@ -352,9 +352,9 @@ export function ReviewQueuePage() {
       const remainingContracts = contracts.filter(
         (c) =>
           c.id !== contract.id &&
-          (c.owner || '').toLowerCase() === (edit?.person || selectedTicket.person || '').toLowerCase() &&
-          (c.crop || '').toLowerCase() === (edit?.crop || selectedTicket.crop || '').toLowerCase() &&
-          (c.through || '').toLowerCase() === (edit?.through || selectedTicket.through || '').toLowerCase() &&
+          (c.owner || '').trim().toLowerCase() === (edit?.person || selectedTicket.person || '').trim().toLowerCase() &&
+          (c.crop || '').trim().toLowerCase() === (edit?.crop || selectedTicket.crop || '').trim().toLowerCase() &&
+          (c.through || '').trim().toLowerCase() === (edit?.through || selectedTicket.through || '').trim().toLowerCase() &&
           (c.percent_filled || 0) < 100
       );
 

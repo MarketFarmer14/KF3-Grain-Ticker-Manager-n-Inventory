@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import { PERSON_OPTIONS, normalizeTicketFields } from '../lib/constants';
+import { findBestContract } from '../lib/contractMatcher';
 import { exportTicketsToExcel } from '../lib/export';
 import { Download } from 'lucide-react';
 import type { Database } from '../lib/database.types';
 
 type Ticket = Database['public']['Tables']['tickets']['Row'];
+type Contract = Database['public']['Tables']['contracts']['Row'];
 type SortField = 'ticket_date' | 'ticket_number' | 'person' | 'crop' | 'bushels' | 'delivery_location' | 'through' | 'truck' | 'dockage' | 'status';
 type SortDir = 'asc' | 'desc';
 
@@ -41,6 +43,7 @@ function ticketToEdit(ticket: Ticket): EditState {
 
 export function TicketsPage() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [contracts, setContracts] = useState<Contract[]>([]);
   const [showTrash, setShowTrash] = useState(false);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -48,6 +51,8 @@ export function TicketsPage() {
   const [saving, setSaving] = useState(false);
   const [sortField, setSortField] = useState<SortField>('ticket_date');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
+  const [assigningId, setAssigningId] = useState<string | null>(null);
+  const [rematching, setRematching] = useState<string | null>(null);
 
   const currentYear = localStorage.getItem('grain_ticket_year') || new Date().getFullYear().toString();
 
@@ -102,18 +107,25 @@ export function TicketsPage() {
 
   const fetchTickets = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('tickets')
-      .select('*')
-      .eq('crop_year', currentYear)
-      .eq('deleted', showTrash)
-      .order('ticket_date', { ascending: false });
+    const [ticketsRes, contractsRes] = await Promise.all([
+      supabase
+        .from('tickets')
+        .select('*')
+        .eq('crop_year', currentYear)
+        .eq('deleted', showTrash)
+        .order('ticket_date', { ascending: false }),
+      supabase
+        .from('contracts')
+        .select('*')
+        .eq('crop_year', currentYear),
+    ]);
 
-    if (error) {
-      console.error('Error fetching tickets:', error);
+    if (ticketsRes.error) {
+      console.error('Error fetching tickets:', ticketsRes.error);
     } else {
-      setTickets(data || []);
+      setTickets(ticketsRes.data || []);
     }
+    setContracts(contractsRes.data || []);
     setLoading(false);
   };
 
@@ -212,6 +224,74 @@ export function TicketsPage() {
     }
   };
 
+  const handleRematch = async (ticket: Ticket) => {
+    setRematching(ticket.id);
+    const matchResult = findBestContract(
+      {
+        person: ticket.person,
+        crop: ticket.crop,
+        through: ticket.through,
+        delivery_location: ticket.delivery_location,
+      },
+      contracts
+    );
+
+    if (matchResult.contract) {
+      const { error } = await supabase
+        .from('tickets')
+        .update({ contract_id: matchResult.contract.id })
+        .eq('id', ticket.id);
+
+      if (error) {
+        alert('Rematch failed: ' + error.message);
+      } else {
+        alert(`Matched to contract #${matchResult.contract.contract_number}`);
+        fetchTickets();
+      }
+    } else {
+      alert('No matching contract found for this ticket.');
+    }
+    setRematching(null);
+  };
+
+  const handleManualAssign = async (ticketId: string, contractId: string) => {
+    if (!contractId) {
+      // Unassign
+      const { error } = await supabase
+        .from('tickets')
+        .update({ contract_id: null })
+        .eq('id', ticketId);
+
+      if (error) {
+        alert('Failed to unassign: ' + error.message);
+      } else {
+        fetchTickets();
+      }
+    } else {
+      const { error } = await supabase
+        .from('tickets')
+        .update({ contract_id: contractId })
+        .eq('id', ticketId);
+
+      if (error) {
+        alert('Failed to assign: ' + error.message);
+      } else {
+        fetchTickets();
+      }
+    }
+    setAssigningId(null);
+  };
+
+  // Get contract display name for a ticket
+  const getContractLabel = (contractId: string | null): string => {
+    if (!contractId) return 'None';
+    const c = contracts.find(con => con.id === contractId);
+    return c ? `#${c.contract_number}` : 'Unknown';
+  };
+
+  // Filter non-spot contracts for manual assignment dropdown
+  const assignableContracts = contracts.filter(c => !c.is_spot_sale && (c.percent_filled || 0) < 100);
+
   if (loading) {
     return <div className="p-8 text-center text-white">Loading tickets...</div>;
   }
@@ -277,6 +357,7 @@ export function TicketsPage() {
                     {label}{sortIndicator(field)}
                   </th>
                 ))}
+                <th className="px-4 py-3 text-left text-white">Contract</th>
                 {showTrash && <th className="px-4 py-3 text-left text-white">Deleted</th>}
                 <th className="px-4 py-3 text-center text-white">Actions</th>
               </tr>
@@ -400,6 +481,38 @@ export function TicketsPage() {
                         {ticket.status}
                       </span>
                     </td>
+                    <td className="px-4 py-3 text-white text-sm">
+                      {assigningId === ticket.id ? (
+                        <div className="flex flex-col gap-1">
+                          <select
+                            onChange={(e) => handleManualAssign(ticket.id, e.target.value)}
+                            defaultValue={ticket.contract_id || ''}
+                            className="w-full px-2 py-1 bg-gray-600 text-white rounded text-xs border border-gray-500"
+                          >
+                            <option value="">None (unassign)</option>
+                            {assignableContracts.map(c => (
+                              <option key={c.id} value={c.id}>
+                                #{c.contract_number} — {c.owner} {c.crop} {c.through} ({c.remaining_bushels.toLocaleString()} remaining)
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            onClick={() => setAssigningId(null)}
+                            className="px-2 py-0.5 bg-gray-600 hover:bg-gray-500 text-white rounded text-xs"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <span
+                          onClick={() => !showTrash && setAssigningId(ticket.id)}
+                          className={`cursor-pointer hover:underline ${ticket.contract_id ? 'text-emerald-400' : 'text-gray-500'}`}
+                          title="Click to reassign"
+                        >
+                          {getContractLabel(ticket.contract_id)}
+                        </span>
+                      )}
+                    </td>
                     {showTrash && (
                       <td className="px-4 py-3 text-white text-sm">
                         {ticket.deleted_at
@@ -446,6 +559,13 @@ export function TicketsPage() {
                             className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
                           >
                             Edit
+                          </button>
+                          <button
+                            onClick={() => handleRematch(ticket)}
+                            disabled={rematching === ticket.id}
+                            className="px-3 py-1 bg-yellow-600 hover:bg-yellow-700 disabled:bg-gray-600 text-white rounded text-sm"
+                          >
+                            {rematching === ticket.id ? '...' : 'Rematch'}
                           </button>
                           <button
                             onClick={() => handleSoftDelete(ticket.id)}

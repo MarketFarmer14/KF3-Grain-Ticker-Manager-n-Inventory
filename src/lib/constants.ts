@@ -134,3 +134,19 @@ export function normalizeTicketFields(data: {
   if (result.through) result.through = matchToList(result.through, THROUGH_OPTIONS);
   return result;
 }
+
+// Normalize contract fields (owner/crop/through/destination) to canonical casing
+export function normalizeContractFields(data: {
+  owner?: string | null;
+  crop?: string;
+  through?: string | null;
+  destination?: string;
+  [key: string]: any;
+}): typeof data {
+  const result = { ...data };
+  if (result.owner) result.owner = matchToList(result.owner, PERSON_OPTIONS);
+  if (result.crop) result.crop = matchToList(result.crop, CROP_OPTIONS);
+  if (result.through) result.through = matchToList(result.through, THROUGH_OPTIONS);
+  if (result.destination) result.destination = result.destination.trim();
+  return result;
+}

@@ -18,13 +18,13 @@ export function findBestContract(
   },
   contracts: Contract[]
 ): MatchResult {
-  // Filter contracts that match person, crop, and through
+  // Filter contracts that match person, crop, and through (trimmed, case-insensitive)
   const matchingContracts = contracts.filter((c) => {
-    const personMatch = (c.owner || '').toLowerCase() === (ticket.person || '').toLowerCase();
-    const cropMatch = (c.crop || '').toLowerCase() === (ticket.crop || '').toLowerCase();
-    const throughMatch = (c.through || '').toLowerCase() === (ticket.through || '').toLowerCase();
-    const notFilled = (c.percent_filled || 0) < 100; // Skip 100% filled contracts
-    const notSpot = !c.is_spot_sale; // Skip spot sales
+    const personMatch = (c.owner || '').trim().toLowerCase() === (ticket.person || '').trim().toLowerCase();
+    const cropMatch = (c.crop || '').trim().toLowerCase() === (ticket.crop || '').trim().toLowerCase();
+    const throughMatch = (c.through || '').trim().toLowerCase() === (ticket.through || '').trim().toLowerCase();
+    const notFilled = (c.percent_filled || 0) < 100;
+    const notSpot = !c.is_spot_sale;
 
     return personMatch && cropMatch && throughMatch && notFilled && notSpot;
   });
@@ -33,8 +33,11 @@ export function findBestContract(
     return { contract: null, matchType: 'spot', confidence: 0 };
   }
 
-  // Sort by fewest remaining bushels first (fill smallest gaps first)
+  // Sort by earliest delivery window first, then by fewest remaining bushels as tiebreaker
   const sorted = matchingContracts.sort((a, b) => {
+    const aDate = a.end_date ? new Date(a.end_date).getTime() : Infinity;
+    const bDate = b.end_date ? new Date(b.end_date).getTime() : Infinity;
+    if (aDate !== bDate) return aDate - bDate;
     const aRemaining = a.remaining_bushels ?? (a.contracted_bushels - a.delivered_bushels);
     const bRemaining = b.remaining_bushels ?? (b.contracted_bushels - b.delivered_bushels);
     return aRemaining - bRemaining;

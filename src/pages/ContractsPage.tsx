@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import { normalizeContractFields } from '../lib/constants';
 import type { Database } from '../lib/database.types';
 import * as XLSX from 'xlsx';
 
@@ -100,12 +101,18 @@ export function ContractsPage() {
   const handleBulkEdit = async () => {
     if (selectedIds.size === 0) return;
 
+    const bulkNormalized = normalizeContractFields({
+      owner: bulkEditData.owner || undefined,
+      through: bulkEditData.through || undefined,
+      destination: bulkEditData.destination || undefined,
+    });
+
     const updates: any = {};
     if (bulkEditData.priority) updates.priority = parseInt(bulkEditData.priority);
     if (bulkEditData.crop_year) updates.crop_year = bulkEditData.crop_year;
-    if (bulkEditData.owner) updates.owner = bulkEditData.owner;
-    if (bulkEditData.through) updates.through = bulkEditData.through;
-    if (bulkEditData.destination) updates.destination = bulkEditData.destination;
+    if (bulkEditData.owner) updates.owner = bulkNormalized.owner;
+    if (bulkEditData.through) updates.through = bulkNormalized.through;
+    if (bulkEditData.destination) updates.destination = bulkNormalized.destination;
     if (bulkEditData.start_date) updates.start_date = bulkEditData.start_date;
     if (bulkEditData.end_date) updates.end_date = bulkEditData.end_date;
 
@@ -184,12 +191,18 @@ export function ContractsPage() {
         const jsonData = XLSX.utils.sheet_to_json(firstSheet);
 
         const mapped = jsonData.map((row: any) => {
-          return {
-            contract_number: (row['Contract#'] || '').toString(),
-            crop: row['Crop'] || '',
+          const normalized = normalizeContractFields({
             owner: row['Owner'] || '',
+            crop: row['Crop'] || '',
             through: row['Through'] || '',
             destination: row['Location'] || '',
+          });
+          return {
+            contract_number: (row['Contract#'] || '').toString().trim(),
+            crop: normalized.crop || '',
+            owner: normalized.owner || '',
+            through: normalized.through || '',
+            destination: normalized.destination || '',
             contracted_bushels: parseFloat(row['Bushels'] || '0'),
             start_date: convertExcelDate(row['Window Start']),
             end_date: convertExcelDate(row['Window End']),
@@ -235,12 +248,21 @@ export function ContractsPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    const normalized = normalizeContractFields({
+      owner: formData.owner,
+      crop: formData.crop,
+      through: formData.through,
+      destination: formData.destination,
+    });
+
     const dataToSave: ContractInsert = {
       ...formData,
+      owner: normalized.owner,
+      crop: normalized.crop!,
+      through: normalized.through,
+      destination: normalized.destination!,
       crop_year: formData.crop_year || currentYear,
       contract_number: formData.contract_number!,
-      crop: formData.crop!,
-      destination: formData.destination!,
       contracted_bushels: formData.contracted_bushels!,
     };
 
