@@ -8,21 +8,6 @@ export interface MatchResult {
   confidence: number;
 }
 
-// Normalize location strings for fuzzy matching
-function normalizeLocation(location: string): string {
-  return location
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, '') // Remove all non-alphanumeric
-    .trim();
-}
-
-// Check if two locations match (fuzzy)
-function locationsMatch(loc1: string, loc2: string): boolean {
-  const normalized1 = normalizeLocation(loc1);
-  const normalized2 = normalizeLocation(loc2);
-  return normalized1 === normalized2;
-}
-
 // Find best matching contract for a ticket
 export function findBestContract(
   ticket: {
@@ -38,22 +23,21 @@ export function findBestContract(
     const personMatch = c.owner === ticket.person;
     const cropMatch = c.crop === ticket.crop;
     const throughMatch = c.through === ticket.through;
-    const locationMatch = locationsMatch(c.destination, ticket.delivery_location);
     const notFilled = (c.percent_filled || 0) < 100; // Skip 100% filled contracts
     const notSpot = !c.is_spot_sale; // Skip spot sales
 
-    return personMatch && cropMatch && throughMatch && locationMatch && notFilled && notSpot;
+    return personMatch && cropMatch && throughMatch && notFilled && notSpot;
   });
 
   if (matchingContracts.length === 0) {
     return { contract: null, matchType: 'spot', confidence: 0 };
   }
 
-  // Sort by urgency: nearest end date first
+  // Sort by fewest remaining bushels first (fill smallest gaps first)
   const sorted = matchingContracts.sort((a, b) => {
-    const aDate = a.end_date ? new Date(a.end_date).getTime() : Infinity;
-    const bDate = b.end_date ? new Date(b.end_date).getTime() : Infinity;
-    return aDate - bDate;
+    const aRemaining = a.remaining_bushels ?? (a.contracted_bushels - a.delivered_bushels);
+    const bRemaining = b.remaining_bushels ?? (b.contracted_bushels - b.delivered_bushels);
+    return aRemaining - bRemaining;
   });
 
   return {
