@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { Camera } from 'lucide-react';
 import { PERSON_OPTIONS } from '../lib/constants';
 
 export function UploadPage() {
+  const navigate = useNavigate();
   const [person, setPerson] = useState(() => localStorage.getItem('grain_last_person') || '');
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -142,6 +144,12 @@ export function UploadPage() {
           className="w-full px-4 py-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-lg mb-3"
         >
           Another Load
+        </button>
+        <button
+          onClick={() => navigate('/review')}
+          className="w-full px-4 py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-lg mb-3"
+        >
+          Go to Review
         </button>
       </div>
     );
