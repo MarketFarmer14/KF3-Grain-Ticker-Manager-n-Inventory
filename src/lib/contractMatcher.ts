@@ -2,55 +2,88 @@ import type { Database } from './database.types';
 
 type Contract = Database['public']['Tables']['contracts']['Row'];
 
-export interface MatchResult {
-  contract: Contract | null;
-  matchType: 'exact' | 'fuzzy' | 'spot' | 'overfill';
-  confidence: number;
+export interface SplitAssignment {
+  contract: Contract;
+  bushels: number;
+  person: string;
 }
 
-// Find best matching contract for a ticket
-export function findBestContract(
+export interface AutoAssignmentResult {
+  splits: SplitAssignment[];
+  totalAssigned: number;
+  remainder: number;
+  needsSpotSale: boolean;
+}
+
+// Normalize location strings for fuzzy matching
+function normalizeLocation(location: string): string {
+  return location
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+    .trim();
+}
+
+// Check if two locations match (fuzzy)
+function locationsMatch(loc1: string, loc2: string): boolean {
+  const normalized1 = normalizeLocation(loc1);
+  const normalized2 = normalizeLocation(loc2);
+  return normalized1 === normalized2;
+}
+
+// Auto-assign ticket across multiple contracts (smallest remaining first)
+export function autoAssignTicket(
   ticket: {
     person: string;
     crop: string;
     through: string;
-    delivery_location: string;
+    bushels: number;
   },
   contracts: Contract[]
-): MatchResult {
-  // Filter contracts that match person, crop, and through (trimmed, case-insensitive)
+): AutoAssignmentResult {
+  const splits: SplitAssignment[] = [];
+  let remainingBushels = ticket.bushels;
+
+  // Filter contracts that match person, crop, and through
   const matchingContracts = contracts.filter((c) => {
-    const personMatch = (c.owner || '').trim().toLowerCase() === (ticket.person || '').trim().toLowerCase();
-    const cropMatch = (c.crop || '').trim().toLowerCase() === (ticket.crop || '').trim().toLowerCase();
-    const throughMatch = (c.through || '').trim().toLowerCase() === (ticket.through || '').trim().toLowerCase();
+    const personMatch = c.owner === ticket.person;
+    const cropMatch = c.crop === ticket.crop;
+    const throughMatch = c.through === ticket.through;
     const notFilled = (c.percent_filled || 0) < 100;
     const notSpot = !c.is_spot_sale;
+    const hasRemaining = c.remaining_bushels > 0;
 
-    return personMatch && cropMatch && throughMatch && notFilled && notSpot;
+    return personMatch && cropMatch && throughMatch && notFilled && !notSpot && hasRemaining;
   });
 
-  if (matchingContracts.length === 0) {
-    return { contract: null, matchType: 'spot', confidence: 0 };
+  // Sort by remaining bushels (SMALLEST FIRST)
+  const sorted = matchingContracts.sort((a, b) => {
+    return a.remaining_bushels - b.remaining_bushels;
+  });
+
+  // Assign bushels to contracts (smallest first)
+  for (const contract of sorted) {
+    if (remainingBushels <= 0) break;
+
+    const bushelsToAssign = Math.min(remainingBushels, contract.remaining_bushels);
+
+    splits.push({
+      contract,
+      bushels: bushelsToAssign,
+      person: ticket.person,
+    });
+
+    remainingBushels -= bushelsToAssign;
   }
 
-  // Sort by earliest delivery window first, then by fewest remaining bushels as tiebreaker
-  const sorted = matchingContracts.sort((a, b) => {
-    const aDate = a.end_date ? new Date(a.end_date).getTime() : Infinity;
-    const bDate = b.end_date ? new Date(b.end_date).getTime() : Infinity;
-    if (aDate !== bDate) return aDate - bDate;
-    const aRemaining = a.remaining_bushels ?? (a.contracted_bushels - a.delivered_bushels);
-    const bRemaining = b.remaining_bushels ?? (b.contracted_bushels - b.delivered_bushels);
-    return aRemaining - bRemaining;
-  });
-
   return {
-    contract: sorted[0],
-    matchType: 'exact',
-    confidence: 100,
+    splits,
+    totalAssigned: ticket.bushels - remainingBushels,
+    remainder: remainingBushels,
+    needsSpotSale: remainingBushels > 0,
   };
 }
 
-// Create spot sale contract
+// Create spot sale contract for leftover bushels
 export function createSpotSaleContract(ticket: {
   person: string;
   crop: string;
@@ -58,7 +91,7 @@ export function createSpotSaleContract(ticket: {
   delivery_location: string;
   ticket_date: string;
   crop_year: string;
-  bushels?: number;
+  bushels: number;
 }) {
   const date = new Date(ticket.ticket_date).toLocaleDateString();
   return {
@@ -67,14 +100,15 @@ export function createSpotSaleContract(ticket: {
     owner: ticket.person,
     through: ticket.through,
     destination: ticket.delivery_location,
-    contracted_bushels: ticket.bushels || 1, // Must be > 0 for CHECK constraint
+    contracted_bushels: ticket.bushels,
+    delivered_bushels: 0,
     start_date: ticket.ticket_date,
     end_date: ticket.ticket_date,
-    priority: 10, // Lowest priority
+    priority: 10,
     overfill_allowed: true,
     is_template: false,
     is_spot_sale: true,
-    notes: `Auto-created spot sale on ${date}`,
+    notes: `Auto-created spot sale for ${ticket.bushels} bushels on ${date}`,
     crop_year: ticket.crop_year,
   };
 }
