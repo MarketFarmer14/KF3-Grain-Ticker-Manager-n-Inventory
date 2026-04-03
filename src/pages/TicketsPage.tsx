@@ -8,15 +8,18 @@ type Contract = Database['public']['Tables']['contracts']['Row'];
 type TicketSplit = Database['public']['Tables']['ticket_splits']['Row'];
 
 interface TicketWithSplits extends Ticket {
-  splits?: Array<TicketSplit & { contract?: Contract }>;
+  splits: Array<TicketSplit & { contractNumber?: string; destination?: string }>;
 }
 
 export function TicketsPage() {
   const [tickets, setTickets] = useState<TicketWithSplits[]>([]);
   const [contracts, setContracts] = useState<Contract[]>([]);
+  const [allSplits, setAllSplits] = useState<TicketSplit[]>([]);
   const [loading, setLoading] = useState(true);
   const [showDeleted, setShowDeleted] = useState(false);
   const [editingSplits, setEditingSplits] = useState<string | null>(null);
+  const [showAddSplitModal, setShowAddSplitModal] = useState<string | null>(null);
+  const [newSplit, setNewSplit] = useState({ contractId: '', person: '', bushels: 0 });
   
   const currentYear = localStorage.getItem('grain_ticket_year') || new Date().getFullYear().toString();
 
@@ -29,43 +32,61 @@ export function TicketsPage() {
 
     const deletedFilter = showDeleted ? true : false;
 
-    const [ticketsRes, contractsRes] = await Promise.all([
-      supabase
+    try {
+      // Fetch tickets
+      const { data: ticketsData, error: ticketsError } = await supabase
         .from('tickets')
         .select('*')
         .eq('crop_year', currentYear)
         .eq('deleted', deletedFilter)
-        .order('ticket_date', { ascending: false }),
-      supabase
+        .order('ticket_date', { ascending: false });
+
+      if (ticketsError) throw ticketsError;
+
+      // Fetch contracts
+      const { data: contractsData, error: contractsError } = await supabase
         .from('contracts')
         .select('*')
-        .eq('crop_year', currentYear),
-    ]);
+        .eq('crop_year', currentYear);
 
-    if (ticketsRes.error) {
-      console.error('Error fetching tickets:', ticketsRes.error);
-      setTickets([]);
-    } else {
-      // Fetch splits for each ticket
-      const ticketsWithSplits = await Promise.all(
-        (ticketsRes.data || []).map(async (ticket) => {
-          const { data: splits } = await supabase
-            .from('ticket_splits')
-            .select('*, contract:contracts(*)')
-            .eq('ticket_id', ticket.id);
+      if (contractsError) throw contractsError;
 
-          return {
-            ...ticket,
-            splits: splits || [],
-          };
-        })
-      );
+      // Fetch all splits
+      const { data: splitsData, error: splitsError } = await supabase
+        .from('ticket_splits')
+        .select('*');
+
+      if (splitsError) throw splitsError;
+
+      setContracts(contractsData || []);
+      setAllSplits(splitsData || []);
+
+      // Combine tickets with their splits
+      const ticketsWithSplits: TicketWithSplits[] = (ticketsData || []).map(ticket => {
+        const ticketSplits = (splitsData || [])
+          .filter(split => split.ticket_id === ticket.id)
+          .map(split => {
+            const contract = contractsData?.find(c => c.id === split.contract_id);
+            return {
+              ...split,
+              contractNumber: contract?.contract_number,
+              destination: contract?.destination,
+            };
+          });
+
+        return {
+          ...ticket,
+          splits: ticketSplits,
+        };
+      });
 
       setTickets(ticketsWithSplits);
+    } catch (error) {
+      console.error('Error fetching data:', error);
+      setTickets([]);
+    } finally {
+      setLoading(false);
     }
-
-    setContracts(contractsRes.data || []);
-    setLoading(false);
   };
 
   const handleDelete = async (ticketId: string) => {
@@ -152,45 +173,42 @@ export function TicketsPage() {
     }
   };
 
-  const handleAddSplit = async (ticketId: string) => {
+  const openAddSplitModal = (ticketId: string) => {
     const ticket = tickets.find(t => t.id === ticketId);
     if (!ticket) return;
 
-    // Calculate remaining bushels
-    const assignedBushels = (ticket.splits || []).reduce((sum, split) => sum + split.bushels, 0);
+    const assignedBushels = ticket.splits.reduce((sum, split) => sum + split.bushels, 0);
     const remaining = ticket.bushels - assignedBushels;
 
-    if (remaining <= 0) {
-      alert('Ticket is fully assigned');
-      return;
-    }
+    setNewSplit({
+      contractId: '',
+      person: ticket.person,
+      bushels: remaining,
+    });
+    setShowAddSplitModal(ticketId);
+  };
 
-    // Find a matching contract
-    const matchingContract = contracts.find(c => 
-      c.owner === ticket.person && 
-      c.crop === ticket.crop && 
-      c.through === ticket.through &&
-      c.remaining_bushels > 0
-    );
-
-    if (!matchingContract) {
-      alert('No matching contracts found');
+  const handleAddSplit = async () => {
+    if (!showAddSplitModal) return;
+    if (!newSplit.contractId) {
+      alert('Please select a contract');
       return;
     }
 
     const { error } = await supabase
       .from('ticket_splits')
       .insert({
-        ticket_id: ticketId,
-        contract_id: matchingContract.id,
-        person: ticket.person,
-        bushels: Math.min(remaining, matchingContract.remaining_bushels),
+        ticket_id: showAddSplitModal,
+        contract_id: newSplit.contractId,
+        person: newSplit.person,
+        bushels: newSplit.bushels,
       });
 
     if (error) {
       console.error('Error adding split:', error);
       alert('Failed to add split');
     } else {
+      setShowAddSplitModal(null);
       await fetchData();
     }
   };
@@ -250,6 +268,68 @@ export function TicketsPage() {
         </div>
       </div>
 
+      {/* Add Split Modal */}
+      {showAddSplitModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-gray-800 rounded-lg p-6 max-w-md w-full mx-4 border border-gray-700">
+            <h2 className="text-xl font-bold text-white mb-4">Add Split</h2>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">Contract</label>
+                <select
+                  value={newSplit.contractId}
+                  onChange={(e) => setNewSplit({ ...newSplit, contractId: e.target.value })}
+                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white"
+                >
+                  <option value="">Select contract...</option>
+                  {contracts.map(c => (
+                    <option key={c.id} value={c.id}>
+                      {c.contract_number} - {c.destination} (Remaining: {c.remaining_bushels})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">Person</label>
+                <input
+                  type="text"
+                  value={newSplit.person}
+                  onChange={(e) => setNewSplit({ ...newSplit, person: e.target.value })}
+                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">Bushels</label>
+                <input
+                  type="number"
+                  value={newSplit.bushels}
+                  onChange={(e) => setNewSplit({ ...newSplit, bushels: parseFloat(e.target.value) })}
+                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-2 mt-6">
+              <button
+                onClick={handleAddSplit}
+                className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold"
+              >
+                Add Split
+              </button>
+              <button
+                onClick={() => setShowAddSplitModal(null)}
+                className="px-4 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded-lg"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {tickets.length === 0 ? (
         <div className="text-center py-12 text-gray-400">
           {showDeleted ? 'No deleted tickets' : 'No tickets found'}
@@ -257,7 +337,7 @@ export function TicketsPage() {
       ) : (
         <div className="space-y-4">
           {tickets.map((ticket) => {
-            const assignedBushels = (ticket.splits || []).reduce((sum, split) => sum + split.bushels, 0);
+            const assignedBushels = ticket.splits.reduce((sum, split) => sum + split.bushels, 0);
             const remainingBushels = ticket.bushels - assignedBushels;
 
             return (
@@ -301,27 +381,36 @@ export function TicketsPage() {
                 </div>
 
                 {/* Splits Section */}
-                {ticket.splits && ticket.splits.length > 0 && (
-                  <div className="mt-4 border-t border-gray-600 pt-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="text-sm font-semibold text-gray-300">
-                        Contract Assignments ({ticket.splits.length})
-                      </div>
-                      {remainingBushels > 0 && (
-                        <div className="text-sm text-yellow-400">
-                          Remaining: {remainingBushels.toLocaleString()} bushels
-                        </div>
-                      )}
+                <div className="mt-4 border-t border-gray-600 pt-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="text-sm font-semibold text-gray-300">
+                      Contract Assignments ({ticket.splits.length})
                     </div>
+                    {remainingBushels > 0 && (
+                      <div className="text-sm text-yellow-400 font-semibold">
+                        ⚠️ Unassigned: {remainingBushels.toLocaleString()} bushels
+                      </div>
+                    )}
+                    {remainingBushels === 0 && ticket.splits.length > 0 && (
+                      <div className="text-sm text-green-400 font-semibold">
+                        ✓ Fully Assigned
+                      </div>
+                    )}
+                  </div>
 
+                  {ticket.splits.length === 0 ? (
+                    <div className="text-center py-4 text-gray-500 bg-gray-900/30 rounded">
+                      No splits assigned yet
+                    </div>
+                  ) : (
                     <div className="space-y-2">
-                      {ticket.splits.map((split: any) => (
-                        <div key={split.id} className="bg-gray-900/50 rounded p-3 flex items-center justify-between">
-                          <div className="flex-1 grid grid-cols-4 gap-4">
+                      {ticket.splits.map((split) => (
+                        <div key={split.id} className="bg-gray-900/50 rounded p-3">
+                          <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
                             <div>
                               <div className="text-xs text-gray-400">Contract</div>
-                              <div className="text-white text-sm">
-                                {split.contract?.contract_number || 'Unknown'}
+                              <div className="text-white text-sm font-semibold">
+                                {split.contractNumber || 'Unknown'}
                               </div>
                             </div>
                             <div>
@@ -347,57 +436,55 @@ export function TicketsPage() {
                                   className="w-full px-2 py-1 bg-gray-700 border border-gray-600 rounded text-white text-sm"
                                 />
                               ) : (
-                                <div className="text-white text-sm">{split.bushels.toLocaleString()}</div>
+                                <div className="text-white text-sm font-semibold">{split.bushels.toLocaleString()}</div>
                               )}
                             </div>
                             <div>
                               <div className="text-xs text-gray-400">Destination</div>
-                              <div className="text-white text-sm">
-                                {split.contract?.destination || 'N/A'}
-                              </div>
+                              <div className="text-white text-sm">{split.destination || 'N/A'}</div>
+                            </div>
+                            <div className="flex items-end">
+                              {editingSplits === ticket.id && (
+                                <button
+                                  onClick={() => handleDeleteSplit(split.id)}
+                                  className="w-full px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-sm"
+                                >
+                                  Delete
+                                </button>
+                              )}
                             </div>
                           </div>
-                          {editingSplits === ticket.id && (
-                            <button
-                              onClick={() => handleDeleteSplit(split.id)}
-                              className="ml-4 px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-sm"
-                            >
-                              Delete
-                            </button>
-                          )}
                         </div>
                       ))}
                     </div>
+                  )}
 
-                    <div className="mt-2 flex gap-2">
-                      {editingSplits === ticket.id ? (
-                        <>
-                          <button
-                            onClick={() => setEditingSplits(null)}
-                            className="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded text-sm"
-                          >
-                            Done Editing
-                          </button>
-                          <button
-                            onClick={() => handleAddSplit(ticket.id)}
-                            className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
-                          >
-                            + Add Split
-                          </button>
-                        </>
-                      ) : (
-                        <button
-                          onClick={() => setEditingSplits(ticket.id)}
-                          className="px-3 py-1 bg-gray-600 hover:bg-gray-500 text-white rounded text-sm"
-                        >
-                          Edit Splits
-                        </button>
-                      )}
-                    </div>
+                  <div className="mt-3 flex gap-2">
+                    {editingSplits === ticket.id ? (
+                      <button
+                        onClick={() => setEditingSplits(null)}
+                        className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded font-semibold"
+                      >
+                        ✓ Done Editing
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => setEditingSplits(ticket.id)}
+                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-semibold"
+                      >
+                        ✏️ Edit Splits
+                      </button>
+                    )}
+                    <button
+                      onClick={() => openAddSplitModal(ticket.id)}
+                      className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded font-semibold"
+                    >
+                      + Add Split
+                    </button>
                   </div>
-                )}
+                </div>
 
-                <div className="mt-4 flex gap-2">
+                <div className="mt-4 pt-4 border-t border-gray-600 flex gap-2">
                   {showDeleted ? (
                     <>
                       <button
@@ -418,7 +505,7 @@ export function TicketsPage() {
                       onClick={() => handleDelete(ticket.id)}
                       className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded"
                     >
-                      Delete
+                      🗑️ Delete
                     </button>
                   )}
                 </div>
