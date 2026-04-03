@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { findBestContract, createSpotSaleContract } from '../lib/contractMatcher';
+import { autoAssignTicket, createSpotSaleContract } from '../lib/contractMatcher';
 import { Sparkles } from 'lucide-react';
 import { PERSON_OPTIONS, normalizeTicketFields } from '../lib/constants';
 import type { Database } from '../lib/database.types';
