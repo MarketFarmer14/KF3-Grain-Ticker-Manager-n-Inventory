@@ -1,118 +1,40 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { PERSON_OPTIONS, normalizeTicketFields } from '../lib/constants';
-import { findBestContract } from '../lib/contractMatcher';
-import { exportTicketsToExcel } from '../lib/export';
-import { Download } from 'lucide-react';
 import type { Database } from '../lib/database.types';
+import * as XLSX from 'xlsx';
 
 type Ticket = Database['public']['Tables']['tickets']['Row'];
 type Contract = Database['public']['Tables']['contracts']['Row'];
-type SortField = 'ticket_date' | 'ticket_number' | 'person' | 'crop' | 'bushels' | 'delivery_location' | 'through' | 'truck' | 'dockage' | 'status';
-type SortDir = 'asc' | 'desc';
+type TicketSplit = Database['public']['Tables']['ticket_splits']['Row'];
 
-interface EditState {
-  ticket_date: string;
-  ticket_number: string;
-  person: string;
-  crop: string;
-  bushels: string;
-  delivery_location: string;
-  through: string;
-  truck: string;
-  dockage: string;
-  moisture_percent: string;
-  notes: string;
-}
-
-function ticketToEdit(ticket: Ticket): EditState {
-  return {
-    ticket_date: ticket.ticket_date || '',
-    ticket_number: ticket.ticket_number || '',
-    person: ticket.person || '',
-    crop: ticket.crop || '',
-    bushels: ticket.bushels ? ticket.bushels.toString() : '',
-    delivery_location: ticket.delivery_location || '',
-    through: ticket.through || '',
-    truck: ticket.truck || '',
-    dockage: (ticket as any).dockage ? (ticket as any).dockage.toString() : '',
-    moisture_percent: ticket.moisture_percent ? ticket.moisture_percent.toString() : '',
-    notes: ticket.notes || '',
-  };
+interface TicketWithSplits extends Ticket {
+  splits?: Array<TicketSplit & { contract?: Contract }>;
 }
 
 export function TicketsPage() {
-  const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [tickets, setTickets] = useState<TicketWithSplits[]>([]);
   const [contracts, setContracts] = useState<Contract[]>([]);
-  const [showTrash, setShowTrash] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editState, setEditState] = useState<EditState | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [sortField, setSortField] = useState<SortField>('ticket_date');
-  const [sortDir, setSortDir] = useState<SortDir>('desc');
-  const [assigningId, setAssigningId] = useState<string | null>(null);
-  const [rematching, setRematching] = useState<string | null>(null);
-
+  const [showDeleted, setShowDeleted] = useState(false);
+  const [editingSplits, setEditingSplits] = useState<string | null>(null);
+  
   const currentYear = localStorage.getItem('grain_ticket_year') || new Date().getFullYear().toString();
 
-  const toggleSort = (field: SortField) => {
-    if (sortField === field) {
-      setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortField(field);
-      setSortDir('asc');
-    }
-  };
-
-  const sortIndicator = (field: SortField) =>
-    sortField === field ? (sortDir === 'asc' ? ' \u25B2' : ' \u25BC') : '';
-
-  const sortedTickets = useMemo(() => {
-    return [...tickets].sort((a, b) => {
-      let aVal: any, bVal: any;
-      switch (sortField) {
-        case 'ticket_date': aVal = a.ticket_date; bVal = b.ticket_date; break;
-        case 'ticket_number': aVal = a.ticket_number || ''; bVal = b.ticket_number || ''; break;
-        case 'person': aVal = a.person; bVal = b.person; break;
-        case 'crop': aVal = a.crop; bVal = b.crop; break;
-        case 'bushels': aVal = a.bushels; bVal = b.bushels; break;
-        case 'delivery_location': aVal = a.delivery_location; bVal = b.delivery_location; break;
-        case 'through': aVal = a.through; bVal = b.through; break;
-        case 'truck': aVal = a.truck || ''; bVal = b.truck || ''; break;
-        case 'dockage': aVal = (a as any).dockage || 0; bVal = (b as any).dockage || 0; break;
-        case 'status': aVal = a.status; bVal = b.status; break;
-        default: aVal = ''; bVal = '';
-      }
-      if (typeof aVal === 'number' && typeof bVal === 'number') {
-        return sortDir === 'asc' ? aVal - bVal : bVal - aVal;
-      }
-      const cmp = String(aVal).localeCompare(String(bVal));
-      return sortDir === 'asc' ? cmp : -cmp;
-    });
-  }, [tickets, sortField, sortDir]);
-
-  const handleExport = () => {
-    const approved = tickets.filter((t) => t.status === 'approved');
-    if (approved.length === 0) {
-      alert('No approved tickets to export.');
-      return;
-    }
-    exportTicketsToExcel(approved, `grain_tickets_${currentYear}.xlsx`);
-  };
-
   useEffect(() => {
-    fetchTickets();
-  }, [currentYear, showTrash]);
+    fetchData();
+  }, [currentYear, showDeleted]);
 
-  const fetchTickets = async () => {
+  const fetchData = async () => {
     setLoading(true);
+
+    const deletedFilter = showDeleted ? true : false;
+
     const [ticketsRes, contractsRes] = await Promise.all([
       supabase
         .from('tickets')
         .select('*')
         .eq('crop_year', currentYear)
-        .eq('deleted', showTrash)
+        .eq('deleted', deletedFilter)
         .order('ticket_date', { ascending: false }),
       supabase
         .from('contracts')
@@ -122,62 +44,32 @@ export function TicketsPage() {
 
     if (ticketsRes.error) {
       console.error('Error fetching tickets:', ticketsRes.error);
+      setTickets([]);
     } else {
-      setTickets(ticketsRes.data || []);
+      // Fetch splits for each ticket
+      const ticketsWithSplits = await Promise.all(
+        (ticketsRes.data || []).map(async (ticket) => {
+          const { data: splits } = await supabase
+            .from('ticket_splits')
+            .select('*, contract:contracts(*)')
+            .eq('ticket_id', ticket.id);
+
+          return {
+            ...ticket,
+            splits: splits || [],
+          };
+        })
+      );
+
+      setTickets(ticketsWithSplits);
     }
+
     setContracts(contractsRes.data || []);
     setLoading(false);
   };
 
-  const startEdit = (ticket: Ticket) => {
-    setEditingId(ticket.id);
-    setEditState(ticketToEdit(ticket));
-  };
-
-  const cancelEdit = () => {
-    setEditingId(null);
-    setEditState(null);
-  };
-
-  const updateField = (field: keyof EditState, value: string) => {
-    setEditState((prev) => prev ? { ...prev, [field]: value } : prev);
-  };
-
-  const saveEdit = async () => {
-    if (!editingId || !editState) return;
-    setSaving(true);
-
-    const normalized = normalizeTicketFields({ person: editState.person, crop: editState.crop, through: editState.through });
-
-    const { error } = await supabase
-      .from('tickets')
-      .update({
-        ticket_date: editState.ticket_date || new Date().toISOString().split('T')[0],
-        ticket_number: editState.ticket_number || null,
-        person: normalized.person,
-        crop: normalized.crop,
-        bushels: parseFloat(editState.bushels) || 0,
-        delivery_location: editState.delivery_location,
-        through: normalized.through,
-        truck: editState.truck || null,
-        dockage: editState.dockage ? parseFloat(editState.dockage) : null,
-        moisture_percent: editState.moisture_percent ? parseFloat(editState.moisture_percent) : null,
-        notes: editState.notes || null,
-      })
-      .eq('id', editingId);
-
-    if (error) {
-      alert('Save failed: ' + error.message);
-    } else {
-      setEditingId(null);
-      setEditState(null);
-      fetchTickets();
-    }
-    setSaving(false);
-  };
-
-  const handleSoftDelete = async (ticketId: string) => {
-    if (!confirm('Move this ticket to trash? You can restore it later.')) return;
+  const handleDelete = async (ticketId: string) => {
+    if (!confirm('Move this ticket to trash?')) return;
 
     const { error } = await supabase
       .from('tickets')
@@ -189,9 +81,10 @@ export function TicketsPage() {
       .eq('id', ticketId);
 
     if (error) {
-      alert('Failed to delete: ' + error.message);
+      console.error('Error deleting ticket:', error);
+      alert('Failed to delete ticket');
     } else {
-      fetchTickets();
+      await fetchData();
     }
   };
 
@@ -206,381 +99,332 @@ export function TicketsPage() {
       .eq('id', ticketId);
 
     if (error) {
-      alert('Failed to restore: ' + error.message);
+      console.error('Error restoring ticket:', error);
+      alert('Failed to restore ticket');
     } else {
-      fetchTickets();
+      await fetchData();
     }
   };
 
   const handlePermanentDelete = async (ticketId: string) => {
     if (!confirm('PERMANENTLY delete this ticket? This cannot be undone!')) return;
 
-    const { error } = await supabase.from('tickets').delete().eq('id', ticketId);
+    const { error } = await supabase
+      .from('tickets')
+      .delete()
+      .eq('id', ticketId);
 
     if (error) {
-      alert('Failed to delete: ' + error.message);
+      console.error('Error permanently deleting ticket:', error);
+      alert('Failed to delete ticket');
     } else {
-      fetchTickets();
+      await fetchData();
     }
   };
 
-  const handleRematch = async (ticket: Ticket) => {
-    setRematching(ticket.id);
-    const matchResult = findBestContract(
-      {
-        person: ticket.person,
-        crop: ticket.crop,
-        through: ticket.through,
-        delivery_location: ticket.delivery_location,
-      },
-      contracts
+  const handleUpdateSplit = async (splitId: string, field: string, value: any) => {
+    const { error } = await supabase
+      .from('ticket_splits')
+      .update({ [field]: value })
+      .eq('id', splitId);
+
+    if (error) {
+      console.error('Error updating split:', error);
+      alert('Failed to update split');
+    } else {
+      await fetchData();
+    }
+  };
+
+  const handleDeleteSplit = async (splitId: string) => {
+    if (!confirm('Delete this split?')) return;
+
+    const { error } = await supabase
+      .from('ticket_splits')
+      .delete()
+      .eq('id', splitId);
+
+    if (error) {
+      console.error('Error deleting split:', error);
+      alert('Failed to delete split');
+    } else {
+      await fetchData();
+    }
+  };
+
+  const handleAddSplit = async (ticketId: string) => {
+    const ticket = tickets.find(t => t.id === ticketId);
+    if (!ticket) return;
+
+    // Calculate remaining bushels
+    const assignedBushels = (ticket.splits || []).reduce((sum, split) => sum + split.bushels, 0);
+    const remaining = ticket.bushels - assignedBushels;
+
+    if (remaining <= 0) {
+      alert('Ticket is fully assigned');
+      return;
+    }
+
+    // Find a matching contract
+    const matchingContract = contracts.find(c => 
+      c.owner === ticket.person && 
+      c.crop === ticket.crop && 
+      c.through === ticket.through &&
+      c.remaining_bushels > 0
     );
 
-    if (matchResult.contract) {
-      const { error } = await supabase
-        .from('tickets')
-        .update({ contract_id: matchResult.contract.id })
-        .eq('id', ticket.id);
-
-      if (error) {
-        alert('Rematch failed: ' + error.message);
-      } else {
-        alert(`Matched to contract #${matchResult.contract.contract_number}`);
-        fetchTickets();
-      }
-    } else {
-      alert('No matching contract found for this ticket.');
+    if (!matchingContract) {
+      alert('No matching contracts found');
+      return;
     }
-    setRematching(null);
-  };
 
-  const handleManualAssign = async (ticketId: string, contractId: string) => {
-    if (!contractId) {
-      // Unassign
-      const { error } = await supabase
-        .from('tickets')
-        .update({ contract_id: null })
-        .eq('id', ticketId);
+    const { error } = await supabase
+      .from('ticket_splits')
+      .insert({
+        ticket_id: ticketId,
+        contract_id: matchingContract.id,
+        person: ticket.person,
+        bushels: Math.min(remaining, matchingContract.remaining_bushels),
+      });
 
-      if (error) {
-        alert('Failed to unassign: ' + error.message);
-      } else {
-        fetchTickets();
-      }
+    if (error) {
+      console.error('Error adding split:', error);
+      alert('Failed to add split');
     } else {
-      const { error } = await supabase
-        .from('tickets')
-        .update({ contract_id: contractId })
-        .eq('id', ticketId);
-
-      if (error) {
-        alert('Failed to assign: ' + error.message);
-      } else {
-        fetchTickets();
-      }
+      await fetchData();
     }
-    setAssigningId(null);
   };
 
-  // Get contract display name for a ticket
-  const getContractLabel = (contractId: string | null): string => {
-    if (!contractId) return 'None';
-    const c = contracts.find(con => con.id === contractId);
-    return c ? `#${c.contract_number}` : 'Unknown';
+  const handleExport = () => {
+    const exportData = tickets
+      .filter(t => !t.deleted)
+      .map(ticket => ({
+        'Crop': ticket.crop,
+        'Person': ticket.person,
+        'Date': ticket.ticket_date,
+        'Location': ticket.delivery_location,
+        'Through': ticket.through,
+        'Ticket Number': ticket.ticket_number || '',
+        'Bushels': ticket.bushels,
+      }));
+
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Tickets');
+    XLSX.writeFile(wb, `tickets-${currentYear}.xlsx`);
   };
 
-  // Filter non-spot contracts for manual assignment dropdown
-  const assignableContracts = contracts.filter(c => !c.is_spot_sale && (c.percent_filled || 0) < 100);
+  const getCropColor = (crop: string) => {
+    if (crop === 'Corn') return 'bg-yellow-900/30 border-yellow-600';
+    if (crop === 'Soybeans') return 'bg-green-900/30 border-green-600';
+    return 'bg-gray-800 border-gray-700';
+  };
 
   if (loading) {
-    return <div className="p-8 text-center text-white">Loading tickets...</div>;
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-gray-400">Loading tickets...</div>
+      </div>
+    );
   }
 
-  const isEditing = (id: string) => editingId === id;
-  const inputClass = 'w-full px-2 py-1 bg-gray-600 text-white rounded text-sm border border-gray-500 focus:border-emerald-500 focus:outline-none';
-
   return (
-    <div className="p-4 md:p-8">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold text-white">
-          {showTrash ? `Trash (${currentYear})` : `Tickets (${currentYear})`}
-        </h1>
-        <div className="flex gap-2">
-          {!showTrash && (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h1 className="text-3xl font-bold text-white">Tickets</h1>
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => setShowDeleted(!showDeleted)}
+            className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg"
+          >
+            {showDeleted ? '📋 View Active' : '🗑️ View Trash'}
+          </button>
+          {!showDeleted && (
             <button
               onClick={handleExport}
-              className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold"
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold"
             >
-              <Download size={18} />
-              Export Approved
+              📊 Export to Excel
             </button>
           )}
-          <button
-            onClick={() => setShowTrash(!showTrash)}
-            className={`px-4 py-2 rounded-lg font-semibold ${
-              showTrash
-                ? 'bg-green-600 hover:bg-green-700 text-white'
-                : 'bg-gray-700 hover:bg-gray-600 text-white'
-            }`}
-          >
-            {showTrash ? '\u2190 Back to Tickets' : 'View Trash'}
-          </button>
         </div>
       </div>
 
       {tickets.length === 0 ? (
-        <div className="text-center text-white mt-8">
-          {showTrash ? 'Trash is empty' : 'No tickets for this year'}
+        <div className="text-center py-12 text-gray-400">
+          {showDeleted ? 'No deleted tickets' : 'No tickets found'}
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full bg-gray-800 rounded-lg">
-            <thead className="bg-gray-700">
-              <tr>
-                {([
-                  ['ticket_date', 'Date', 'text-left'],
-                  ['ticket_number', 'Ticket #', 'text-left'],
-                  ['person', 'Person', 'text-left'],
-                  ['crop', 'Crop', 'text-left'],
-                  ['bushels', 'Bushels', 'text-right'],
-                  ['delivery_location', 'Location', 'text-left'],
-                  ['through', 'Through', 'text-left'],
-                  ['truck', 'Truck', 'text-left'],
-                  ['dockage', 'Dockage', 'text-right'],
-                  ['status', 'Status', 'text-left'],
-                ] as [SortField, string, string][]).map(([field, label, align]) => (
-                  <th
-                    key={field}
-                    onClick={() => toggleSort(field)}
-                    className={`px-4 py-3 ${align} text-white cursor-pointer hover:bg-gray-600 select-none`}
-                  >
-                    {label}{sortIndicator(field)}
-                  </th>
-                ))}
-                <th className="px-4 py-3 text-left text-white">Contract</th>
-                {showTrash && <th className="px-4 py-3 text-left text-white">Deleted</th>}
-                <th className="px-4 py-3 text-center text-white">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sortedTickets.map((ticket) => {
-                const isCorn = (ticket.crop || '').toLowerCase() === 'corn';
-                const editing = isEditing(ticket.id);
-                const rowBgClass = showTrash
-                  ? 'bg-red-900 bg-opacity-20'
-                  : editing
-                  ? 'bg-blue-900 bg-opacity-30'
-                  : isCorn
-                  ? 'bg-yellow-900 bg-opacity-20'
-                  : 'bg-green-900 bg-opacity-20';
-                const hoverClass = editing
-                  ? ''
-                  : showTrash
-                  ? 'hover:bg-red-900 hover:bg-opacity-30'
-                  : isCorn
-                  ? 'hover:bg-yellow-900 hover:bg-opacity-30'
-                  : 'hover:bg-green-900 hover:bg-opacity-30';
+        <div className="space-y-4">
+          {tickets.map((ticket) => {
+            const assignedBushels = (ticket.splits || []).reduce((sum, split) => sum + split.bushels, 0);
+            const remainingBushels = ticket.bushels - assignedBushels;
 
-                return (
-                  <tr key={ticket.id} className={`border-t border-gray-700 ${rowBgClass} ${hoverClass}`}>
-                    <td className="px-4 py-3 text-white">
-                      {editing && editState ? (
-                        <input type="date" value={editState.ticket_date} onChange={(e) => updateField('ticket_date', e.target.value)} className={inputClass} />
-                      ) : (
-                        new Date(ticket.ticket_date).toLocaleDateString()
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-white">
-                      {editing && editState ? (
-                        <input type="text" value={editState.ticket_number} onChange={(e) => updateField('ticket_number', e.target.value)} placeholder="-" className={inputClass} />
-                      ) : (
-                        <>
-                          {ticket.ticket_number || '-'}
-                          {ticket.duplicate_flag && (
-                            <span className="ml-1 px-1.5 py-0.5 bg-orange-600 rounded text-xs font-semibold" title={`Duplicate group: ${ticket.duplicate_group}`}>DUP</span>
-                          )}
-                        </>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-white">
-                      {editing && editState ? (
-                        <select value={editState.person} onChange={(e) => updateField('person', e.target.value)} className={inputClass}>
-                          <option value="">Select</option>
-                          {PERSON_OPTIONS.map((p) => (
-                            <option key={p} value={p}>{p}</option>
-                          ))}
-                        </select>
-                      ) : (
-                        ticket.person
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-white font-semibold">
-                      {editing && editState ? (
-                        <select value={editState.crop} onChange={(e) => updateField('crop', e.target.value)} className={inputClass}>
-                          <option value="">Select</option>
-                          <option value="Corn">Corn</option>
-                          <option value="Soybeans">Soybeans</option>
-                        </select>
-                      ) : (
-                        ticket.crop
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-right text-white">
-                      {editing && editState ? (
-                        <input type="number" step="0.01" value={editState.bushels} onChange={(e) => updateField('bushels', e.target.value)} className={`${inputClass} text-right`} />
-                      ) : (
-                        ticket.bushels.toLocaleString()
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-white">
-                      {editing && editState ? (
-                        <input type="text" value={editState.delivery_location} onChange={(e) => updateField('delivery_location', e.target.value)} placeholder="-" className={inputClass} />
-                      ) : (
-                        ticket.delivery_location
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-white">
-                      {editing && editState ? (
-                        <select value={editState.through} onChange={(e) => updateField('through', e.target.value)} className={inputClass}>
-                          <option value="">Select</option>
-                          <option value="Akron">Akron</option>
-                          <option value="RVC">RVC</option>
-                          <option value="Cargill">Cargill</option>
-                          <option value="ADM">ADM</option>
-                        </select>
-                      ) : (
-                        ticket.through
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-white">
-                      {editing && editState ? (
-                        <input type="text" value={editState.truck} onChange={(e) => updateField('truck', e.target.value)} placeholder="-" className={inputClass} />
-                      ) : (
-                        ticket.truck || '-'
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-right text-white">
-                      {editing && editState ? (
-                        <input type="number" step="0.01" value={editState.dockage} onChange={(e) => updateField('dockage', e.target.value)} placeholder="-" className={`${inputClass} text-right`} />
-                      ) : (
-                        (ticket as any).dockage ? `${(ticket as any).dockage}%` : '-'
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-white">
-                      <span
-                        className={`px-2 py-1 rounded text-xs font-semibold ${
-                          ticket.status === 'approved'
-                            ? 'bg-green-600'
-                            : ticket.status === 'rejected'
-                            ? 'bg-red-600'
-                            : ticket.status === 'hold'
-                            ? 'bg-yellow-600'
-                            : 'bg-blue-600'
-                        }`}
-                      >
-                        {ticket.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-white text-sm">
-                      {assigningId === ticket.id ? (
-                        <div className="flex flex-col gap-1">
-                          <select
-                            onChange={(e) => handleManualAssign(ticket.id, e.target.value)}
-                            defaultValue={ticket.contract_id || ''}
-                            className="w-full px-2 py-1 bg-gray-600 text-white rounded text-xs border border-gray-500"
-                          >
-                            <option value="">None (unassign)</option>
-                            {assignableContracts.map(c => (
-                              <option key={c.id} value={c.id}>
-                                #{c.contract_number} — {c.owner} {c.crop} {c.through} ({c.remaining_bushels.toLocaleString()} remaining)
-                              </option>
-                            ))}
-                          </select>
-                          <button
-                            onClick={() => setAssigningId(null)}
-                            className="px-2 py-0.5 bg-gray-600 hover:bg-gray-500 text-white rounded text-xs"
-                          >
-                            Cancel
-                          </button>
+            return (
+              <div
+                key={ticket.id}
+                className={`rounded-lg p-6 border ${getCropColor(ticket.crop)}`}
+              >
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                  <div>
+                    <div className="text-sm text-gray-400">Date</div>
+                    <div className="text-white font-semibold">{ticket.ticket_date}</div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-gray-400">Ticket #</div>
+                    <div className="text-white font-semibold">{ticket.ticket_number || 'N/A'}</div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-gray-400">Person</div>
+                    <div className="text-white font-semibold">{ticket.person}</div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-gray-400">Crop</div>
+                    <div className="text-white font-semibold">{ticket.crop}</div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-gray-400">Bushels</div>
+                    <div className="text-white font-semibold">{ticket.bushels.toLocaleString()}</div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-gray-400">Location</div>
+                    <div className="text-white">{ticket.delivery_location}</div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-gray-400">Through</div>
+                    <div className="text-white">{ticket.through}</div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-gray-400">Status</div>
+                    <div className="text-white capitalize">{ticket.status.replace('_', ' ')}</div>
+                  </div>
+                </div>
+
+                {/* Splits Section */}
+                {ticket.splits && ticket.splits.length > 0 && (
+                  <div className="mt-4 border-t border-gray-600 pt-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="text-sm font-semibold text-gray-300">
+                        Contract Assignments ({ticket.splits.length})
+                      </div>
+                      {remainingBushels > 0 && (
+                        <div className="text-sm text-yellow-400">
+                          Remaining: {remainingBushels.toLocaleString()} bushels
                         </div>
-                      ) : (
-                        <span
-                          onClick={() => !showTrash && setAssigningId(ticket.id)}
-                          className={`cursor-pointer hover:underline ${ticket.contract_id ? 'text-emerald-400' : 'text-gray-500'}`}
-                          title="Click to reassign"
-                        >
-                          {getContractLabel(ticket.contract_id)}
-                        </span>
                       )}
-                    </td>
-                    {showTrash && (
-                      <td className="px-4 py-3 text-white text-sm">
-                        {ticket.deleted_at
-                          ? new Date(ticket.deleted_at).toLocaleDateString()
-                          : '-'}
-                      </td>
-                    )}
-                    <td className="px-4 py-3 text-center">
-                      {showTrash ? (
-                        <div className="flex gap-2 justify-center">
+                    </div>
+
+                    <div className="space-y-2">
+                      {ticket.splits.map((split: any) => (
+                        <div key={split.id} className="bg-gray-900/50 rounded p-3 flex items-center justify-between">
+                          <div className="flex-1 grid grid-cols-4 gap-4">
+                            <div>
+                              <div className="text-xs text-gray-400">Contract</div>
+                              <div className="text-white text-sm">
+                                {split.contract?.contract_number || 'Unknown'}
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-xs text-gray-400">Person</div>
+                              {editingSplits === ticket.id ? (
+                                <input
+                                  type="text"
+                                  value={split.person}
+                                  onChange={(e) => handleUpdateSplit(split.id, 'person', e.target.value)}
+                                  className="w-full px-2 py-1 bg-gray-700 border border-gray-600 rounded text-white text-sm"
+                                />
+                              ) : (
+                                <div className="text-white text-sm">{split.person}</div>
+                              )}
+                            </div>
+                            <div>
+                              <div className="text-xs text-gray-400">Bushels</div>
+                              {editingSplits === ticket.id ? (
+                                <input
+                                  type="number"
+                                  value={split.bushels}
+                                  onChange={(e) => handleUpdateSplit(split.id, 'bushels', parseFloat(e.target.value))}
+                                  className="w-full px-2 py-1 bg-gray-700 border border-gray-600 rounded text-white text-sm"
+                                />
+                              ) : (
+                                <div className="text-white text-sm">{split.bushels.toLocaleString()}</div>
+                              )}
+                            </div>
+                            <div>
+                              <div className="text-xs text-gray-400">Destination</div>
+                              <div className="text-white text-sm">
+                                {split.contract?.destination || 'N/A'}
+                              </div>
+                            </div>
+                          </div>
+                          {editingSplits === ticket.id && (
+                            <button
+                              onClick={() => handleDeleteSplit(split.id)}
+                              className="ml-4 px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-sm"
+                            >
+                              Delete
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="mt-2 flex gap-2">
+                      {editingSplits === ticket.id ? (
+                        <>
                           <button
-                            onClick={() => handleRestore(ticket.id)}
+                            onClick={() => setEditingSplits(null)}
                             className="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded text-sm"
                           >
-                            Restore
+                            Done Editing
                           </button>
                           <button
-                            onClick={() => handlePermanentDelete(ticket.id)}
-                            className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-sm"
-                          >
-                            Delete Forever
-                          </button>
-                        </div>
-                      ) : editing ? (
-                        <div className="flex gap-2 justify-center">
-                          <button
-                            onClick={saveEdit}
-                            disabled={saving}
-                            className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-600 text-white rounded text-sm font-semibold"
-                          >
-                            {saving ? 'Saving...' : 'Save'}
-                          </button>
-                          <button
-                            onClick={cancelEdit}
-                            className="px-3 py-1 bg-gray-600 hover:bg-gray-500 text-white rounded text-sm"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="flex gap-2 justify-center">
-                          <button
-                            onClick={() => startEdit(ticket)}
+                            onClick={() => handleAddSplit(ticket.id)}
                             className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
                           >
-                            Edit
+                            + Add Split
                           </button>
-                          <button
-                            onClick={() => handleRematch(ticket)}
-                            disabled={rematching === ticket.id}
-                            className="px-3 py-1 bg-yellow-600 hover:bg-yellow-700 disabled:bg-gray-600 text-white rounded text-sm"
-                          >
-                            {rematching === ticket.id ? '...' : 'Rematch'}
-                          </button>
-                          <button
-                            onClick={() => handleSoftDelete(ticket.id)}
-                            className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-sm"
-                          >
-                            Delete
-                          </button>
-                        </div>
+                        </>
+                      ) : (
+                        <button
+                          onClick={() => setEditingSplits(ticket.id)}
+                          className="px-3 py-1 bg-gray-600 hover:bg-gray-500 text-white rounded text-sm"
+                        >
+                          Edit Splits
+                        </button>
                       )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                    </div>
+                  </div>
+                )}
+
+                <div className="mt-4 flex gap-2">
+                  {showDeleted ? (
+                    <>
+                      <button
+                        onClick={() => handleRestore(ticket.id)}
+                        className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded"
+                      >
+                        Restore
+                      </button>
+                      <button
+                        onClick={() => handlePermanentDelete(ticket.id)}
+                        className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded"
+                      >
+                        Delete Permanently
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      onClick={() => handleDelete(ticket.id)}
+                      className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded"
+                    >
+                      Delete
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
