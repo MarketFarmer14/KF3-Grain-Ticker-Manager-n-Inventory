@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import { autoAssignTicket } from '../lib/contractMatcher';
 import type { Database } from '../lib/database.types';
 import * as XLSX from 'xlsx';
 
@@ -14,7 +15,6 @@ interface TicketWithSplits extends Ticket {
 export function TicketsPage() {
   const [tickets, setTickets] = useState<TicketWithSplits[]>([]);
   const [contracts, setContracts] = useState<Contract[]>([]);
-  const [allSplits, setAllSplits] = useState<TicketSplit[]>([]);
   const [loading, setLoading] = useState(true);
   const [showDeleted, setShowDeleted] = useState(false);
   const [editingSplits, setEditingSplits] = useState<string | null>(null);
@@ -33,7 +33,6 @@ export function TicketsPage() {
     const deletedFilter = showDeleted ? true : false;
 
     try {
-      // Fetch tickets
       const { data: ticketsData, error: ticketsError } = await supabase
         .from('tickets')
         .select('*')
@@ -43,7 +42,6 @@ export function TicketsPage() {
 
       if (ticketsError) throw ticketsError;
 
-      // Fetch contracts
       const { data: contractsData, error: contractsError } = await supabase
         .from('contracts')
         .select('*')
@@ -51,7 +49,6 @@ export function TicketsPage() {
 
       if (contractsError) throw contractsError;
 
-      // Fetch all splits
       const { data: splitsData, error: splitsError } = await supabase
         .from('ticket_splits')
         .select('*');
@@ -59,9 +56,7 @@ export function TicketsPage() {
       if (splitsError) throw splitsError;
 
       setContracts(contractsData || []);
-      setAllSplits(splitsData || []);
 
-      // Combine tickets with their splits
       const ticketsWithSplits: TicketWithSplits[] = (ticketsData || []).map(ticket => {
         const ticketSplits = (splitsData || [])
           .filter(split => split.ticket_id === ticket.id)
@@ -86,6 +81,72 @@ export function TicketsPage() {
       setTickets([]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleRematch = async (ticketId: string) => {
+    const ticket = tickets.find(t => t.id === ticketId);
+    if (!ticket) return;
+
+    if (!confirm('Delete existing splits and recalculate assignment?')) return;
+
+    try {
+      // Delete existing splits
+      const { error: deleteError } = await supabase
+        .from('ticket_splits')
+        .delete()
+        .eq('ticket_id', ticketId);
+
+      if (deleteError) throw deleteError;
+
+      // Recalculate assignment
+      const assignmentResult = autoAssignTicket(
+        {
+          person: ticket.person,
+          crop: ticket.crop,
+          through: ticket.through,
+          bushels: ticket.bushels,
+        },
+        contracts
+      );
+
+      // Create new splits
+      const splits = assignmentResult.splits.map((split) => ({
+        ticket_id: ticketId,
+        contract_id: split.contract.id,
+        person: split.person,
+        bushels: split.bushels,
+      }));
+
+      if (splits.length > 0) {
+        const { error: insertError } = await supabase
+          .from('ticket_splits')
+          .insert(splits);
+
+        if (insertError) throw insertError;
+
+        // Update contracts
+        for (const split of assignmentResult.splits) {
+          const newDelivered = split.contract.delivered_bushels + split.bushels;
+          const newRemaining = split.contract.contracted_bushels - newDelivered;
+          const newPercent = (newDelivered / split.contract.contracted_bushels) * 100;
+
+          await supabase
+            .from('contracts')
+            .update({
+              delivered_bushels: newDelivered,
+              remaining_bushels: newRemaining,
+              percent_filled: newPercent,
+            })
+            .eq('id', split.contract.id);
+        }
+      }
+
+      await fetchData();
+      alert('Ticket rematched successfully!');
+    } catch (error) {
+      console.error('Rematch error:', error);
+      alert('Failed to rematch ticket');
     }
   };
 
@@ -345,169 +406,173 @@ export function TicketsPage() {
                 key={ticket.id}
                 className={`rounded-lg p-6 border ${getCropColor(ticket.crop)}`}
               >
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-                  <div>
-                    <div className="text-sm text-gray-400">Date</div>
+                {/* Ticket Info - Horizontal Layout */}
+                <div className="flex items-center gap-6 mb-4 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <div className="text-sm text-gray-400">Date:</div>
                     <div className="text-white font-semibold">{ticket.ticket_date}</div>
                   </div>
-                  <div>
-                    <div className="text-sm text-gray-400">Ticket #</div>
+                  <div className="flex items-center gap-2">
+                    <div className="text-sm text-gray-400">Ticket #:</div>
                     <div className="text-white font-semibold">{ticket.ticket_number || 'N/A'}</div>
                   </div>
-                  <div>
-                    <div className="text-sm text-gray-400">Person</div>
+                  <div className="flex items-center gap-2">
+                    <div className="text-sm text-gray-400">Person:</div>
                     <div className="text-white font-semibold">{ticket.person}</div>
                   </div>
-                  <div>
-                    <div className="text-sm text-gray-400">Crop</div>
+                  <div className="flex items-center gap-2">
+                    <div className="text-sm text-gray-400">Crop:</div>
                     <div className="text-white font-semibold">{ticket.crop}</div>
                   </div>
-                  <div>
-                    <div className="text-sm text-gray-400">Bushels</div>
+                  <div className="flex items-center gap-2">
+                    <div className="text-sm text-gray-400">Bushels:</div>
                     <div className="text-white font-semibold">{ticket.bushels.toLocaleString()}</div>
                   </div>
-                  <div>
-                    <div className="text-sm text-gray-400">Location</div>
-                    <div className="text-white">{ticket.delivery_location}</div>
-                  </div>
-                  <div>
-                    <div className="text-sm text-gray-400">Through</div>
+                  <div className="flex items-center gap-2">
+                    <div className="text-sm text-gray-400">Through:</div>
                     <div className="text-white">{ticket.through}</div>
                   </div>
-                  <div>
-                    <div className="text-sm text-gray-400">Status</div>
+                  <div className="flex items-center gap-2">
+                    <div className="text-sm text-gray-400">Location:</div>
+                    <div className="text-white">{ticket.delivery_location}</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="text-sm text-gray-400">Status:</div>
                     <div className="text-white capitalize">{ticket.status.replace('_', ' ')}</div>
                   </div>
                 </div>
 
-                {/* Splits Section */}
-                <div className="mt-4 border-t border-gray-600 pt-4">
+                {/* Splits Section - Horizontal */}
+                <div className="border-t border-gray-600 pt-4">
                   <div className="flex items-center justify-between mb-3">
-                    <div className="text-sm font-semibold text-gray-300">
-                      Contract Assignments ({ticket.splits.length})
+                    <div className="flex items-center gap-4">
+                      <div className="text-sm font-semibold text-gray-300">
+                        Assignments ({ticket.splits.length})
+                      </div>
+                      {remainingBushels > 0 && (
+                        <div className="text-sm text-yellow-400 font-semibold">
+                          ⚠️ Unassigned: {remainingBushels.toLocaleString()} bu
+                        </div>
+                      )}
+                      {remainingBushels === 0 && ticket.splits.length > 0 && (
+                        <div className="text-sm text-green-400 font-semibold">
+                          ✓ Fully Assigned
+                        </div>
+                      )}
                     </div>
-                    {remainingBushels > 0 && (
-                      <div className="text-sm text-yellow-400 font-semibold">
-                        ⚠️ Unassigned: {remainingBushels.toLocaleString()} bushels
-                      </div>
-                    )}
-                    {remainingBushels === 0 && ticket.splits.length > 0 && (
-                      <div className="text-sm text-green-400 font-semibold">
-                        ✓ Fully Assigned
-                      </div>
-                    )}
                   </div>
 
                   {ticket.splits.length === 0 ? (
-                    <div className="text-center py-4 text-gray-500 bg-gray-900/30 rounded">
-                      No splits assigned yet
+                    <div className="text-center py-3 text-gray-500 bg-gray-900/30 rounded text-sm">
+                      No assignments yet
                     </div>
                   ) : (
                     <div className="space-y-2">
                       {ticket.splits.map((split) => (
                         <div key={split.id} className="bg-gray-900/50 rounded p-3">
-                          <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-                            <div>
-                              <div className="text-xs text-gray-400">Contract</div>
+                          <div className="flex items-center gap-6 flex-wrap">
+                            <div className="flex items-center gap-2">
+                              <div className="text-xs text-gray-400">Contract:</div>
                               <div className="text-white text-sm font-semibold">
                                 {split.contractNumber || 'Unknown'}
                               </div>
                             </div>
-                            <div>
-                              <div className="text-xs text-gray-400">Person</div>
+                            <div className="flex items-center gap-2">
+                              <div className="text-xs text-gray-400">Person:</div>
                               {editingSplits === ticket.id ? (
                                 <input
                                   type="text"
                                   value={split.person}
                                   onChange={(e) => handleUpdateSplit(split.id, 'person', e.target.value)}
-                                  className="w-full px-2 py-1 bg-gray-700 border border-gray-600 rounded text-white text-sm"
+                                  className="px-2 py-1 bg-gray-700 border border-gray-600 rounded text-white text-sm w-32"
                                 />
                               ) : (
                                 <div className="text-white text-sm">{split.person}</div>
                               )}
                             </div>
-                            <div>
-                              <div className="text-xs text-gray-400">Bushels</div>
+                            <div className="flex items-center gap-2">
+                              <div className="text-xs text-gray-400">Bushels:</div>
                               {editingSplits === ticket.id ? (
                                 <input
                                   type="number"
                                   value={split.bushels}
                                   onChange={(e) => handleUpdateSplit(split.id, 'bushels', parseFloat(e.target.value))}
-                                  className="w-full px-2 py-1 bg-gray-700 border border-gray-600 rounded text-white text-sm"
+                                  className="px-2 py-1 bg-gray-700 border border-gray-600 rounded text-white text-sm w-24"
                                 />
                               ) : (
                                 <div className="text-white text-sm font-semibold">{split.bushels.toLocaleString()}</div>
                               )}
                             </div>
-                            <div>
-                              <div className="text-xs text-gray-400">Destination</div>
+                            <div className="flex items-center gap-2">
+                              <div className="text-xs text-gray-400">Destination:</div>
                               <div className="text-white text-sm">{split.destination || 'N/A'}</div>
                             </div>
-                            <div className="flex items-end">
-                              {editingSplits === ticket.id && (
-                                <button
-                                  onClick={() => handleDeleteSplit(split.id)}
-                                  className="w-full px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-sm"
-                                >
-                                  Delete
-                                </button>
-                              )}
-                            </div>
+                            {editingSplits === ticket.id && (
+                              <button
+                                onClick={() => handleDeleteSplit(split.id)}
+                                className="ml-auto px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-sm"
+                              >
+                                Delete
+                              </button>
+                            )}
                           </div>
                         </div>
                       ))}
                     </div>
                   )}
 
-                  <div className="mt-3 flex gap-2">
+                  <div className="mt-3 flex gap-2 flex-wrap">
                     {editingSplits === ticket.id ? (
                       <button
                         onClick={() => setEditingSplits(null)}
                         className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded font-semibold"
                       >
-                        ✓ Done Editing
+                        ✓ Done
                       </button>
                     ) : (
                       <button
                         onClick={() => setEditingSplits(ticket.id)}
                         className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-semibold"
                       >
-                        ✏️ Edit Splits
+                        ✏️ Edit
                       </button>
                     )}
                     <button
                       onClick={() => openAddSplitModal(ticket.id)}
                       className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded font-semibold"
                     >
-                      + Add Split
+                      + Add
                     </button>
-                  </div>
-                </div>
-
-                <div className="mt-4 pt-4 border-t border-gray-600 flex gap-2">
-                  {showDeleted ? (
-                    <>
-                      <button
-                        onClick={() => handleRestore(ticket.id)}
-                        className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded"
-                      >
-                        Restore
-                      </button>
-                      <button
-                        onClick={() => handlePermanentDelete(ticket.id)}
-                        className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded"
-                      >
-                        Delete Permanently
-                      </button>
-                    </>
-                  ) : (
                     <button
-                      onClick={() => handleDelete(ticket.id)}
-                      className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded"
+                      onClick={() => handleRematch(ticket.id)}
+                      className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded font-semibold"
                     >
-                      🗑️ Delete
+                      🔄 Rematch
                     </button>
-                  )}
+                    {showDeleted ? (
+                      <>
+                        <button
+                          onClick={() => handleRestore(ticket.id)}
+                          className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded"
+                        >
+                          Restore
+                        </button>
+                        <button
+                          onClick={() => handlePermanentDelete(ticket.id)}
+                          className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded"
+                        >
+                          Delete Forever
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        onClick={() => handleDelete(ticket.id)}
+                        className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded ml-auto"
+                      >
+                        🗑️ Delete
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             );
