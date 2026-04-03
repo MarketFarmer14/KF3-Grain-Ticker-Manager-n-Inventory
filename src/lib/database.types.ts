@@ -21,7 +21,6 @@ export interface Database {
           notes: string | null;
           origin: string;
           moisture_percent: number | null;
-          dockage: number | null;
           crop_year: string;
           deleted: boolean;
           deleted_at: string | null;
@@ -65,6 +64,23 @@ export interface Database {
           updated_at?: string;
         };
         Update: Partial<Database['public']['Tables']['contracts']['Insert']>;
+      };
+      ticket_splits: {
+        Row: {
+          id: string;
+          ticket_id: string;
+          contract_id: string;
+          person: string;
+          bushels: number;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Omit<Database['public']['Tables']['ticket_splits']['Row'], 'id' | 'created_at' | 'updated_at'> & {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database['public']['Tables']['ticket_splits']['Insert']>;
       };
       ticket_audit: {
         Row: {
