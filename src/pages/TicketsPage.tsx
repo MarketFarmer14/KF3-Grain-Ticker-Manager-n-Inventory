@@ -4,7 +4,7 @@ import { PERSON_OPTIONS, ORIGIN_LOCATIONS, normalizeTicketFields } from '../lib/
 import { findBestContract, autoAssignTicket } from '../lib/contractMatcher';
 import type { SplitAssignment } from '../lib/contractMatcher';
 import { SplitTicketModal } from '../components/SplitTicketModal';
-import { exportTicketsToExcel } from '../lib/export';
+import { exportTicketsToExcel, exportHaulingLog } from '../lib/export';
 import { Download, Search } from 'lucide-react';
 import type { Database } from '../lib/database.types';
 import * as XLSX from 'xlsx';
@@ -168,6 +168,27 @@ export function TicketsPage() {
       return;
     }
     exportTicketsToExcel(approved, `grain_tickets_${currentYear}.xlsx`);
+  };
+
+  const handleHaulingLogExport = () => {
+    const approved = tickets.filter((t) => t.status === 'approved');
+    if (approved.length === 0) {
+      alert('No approved tickets to export.');
+      return;
+    }
+    const haulingData = approved.map(t => {
+      const contract = contracts.find(c => c.id === t.contract_id);
+      return {
+        ticket_date: t.ticket_date,
+        ticket_number: t.ticket_number,
+        person: t.person,
+        crop: t.crop,
+        delivery_location: t.delivery_location,
+        bushels: t.bushels,
+        contract_number: contract?.contract_number || '',
+      };
+    });
+    exportHaulingLog(haulingData, `hauling_log_${currentYear}.xlsx`);
   };
 
   useEffect(() => {
@@ -618,6 +639,13 @@ export function TicketsPage() {
               >
                 <Download size={16} />
                 Export Approved
+              </button>
+              <button
+                onClick={handleHaulingLogExport}
+                className="flex items-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-semibold text-sm"
+              >
+                <Download size={16} />
+                Export Hauling Log
               </button>
             </>
           )}

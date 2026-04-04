@@ -37,3 +37,42 @@ export const exportTicketsToExcel = (
   XLSX.utils.book_append_sheet(wb, ws, 'Tickets');
   XLSX.writeFile(wb, filename);
 };
+
+// Hauling Log export: Date | Owner | Crop | Destination | Ticket # | Bushels | Contract #
+// Matches Excel Hauling Log sheet format for direct paste
+
+interface HaulingLogTicket {
+  ticket_date: string;
+  ticket_number: string | null;
+  person: string;
+  crop: string;
+  delivery_location: string;
+  bushels: number;
+  contract_number: string;
+}
+
+const HAULING_HEADERS = ['Date', 'Owner', 'Crop', 'Destination', 'Ticket #', 'Bushels', 'Contract #'];
+const HAULING_COL_WIDTHS = [12, 14, 12, 20, 14, 12, 16];
+
+export const exportHaulingLog = (
+  tickets: HaulingLogTicket[],
+  filename: string = 'hauling_log.xlsx'
+) => {
+  const rows = tickets.map((t) => [
+    t.ticket_date || '',
+    t.person || '',
+    t.crop || '',
+    t.delivery_location || '',
+    t.ticket_number || '',
+    t.bushels,
+    t.contract_number || '',
+  ]);
+
+  const wsData = [HAULING_HEADERS, ...rows];
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+  ws['!cols'] = HAULING_COL_WIDTHS.map((w) => ({ wch: w }));
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Hauling Log');
+  XLSX.writeFile(wb, filename);
+};

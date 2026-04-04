@@ -383,14 +383,8 @@ export function ReviewQueuePage() {
 
       if (splitsError) throw splitsError;
 
-      // Update delivered_bushels on each contract
-      for (const split of confirmSplits) {
-        const newDelivered = split.contract.delivered_bushels + split.bushels;
-        await supabase
-          .from('contracts')
-          .update({ delivered_bushels: newDelivered })
-          .eq('id', split.contract.id);
-      }
+      // delivered_bushels NOT updated here — Excel handles delivery accounting
+      // via UpdateContractDeliveries from the Hauling Log export
 
       setConfirmTicket(null);
       setConfirmSplits([]);

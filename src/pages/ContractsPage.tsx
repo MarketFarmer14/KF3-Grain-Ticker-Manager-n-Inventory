@@ -340,6 +340,41 @@ export function ContractsPage() {
     setShowModal(true);
   };
 
+  const handleContractExport = () => {
+    if (contracts.length === 0) {
+      alert('No contracts to export.');
+      return;
+    }
+    // Match Excel Contracts sheet: Owner, Elevator/Buyer, Contract #, Crop, Bushels, Price, Window Start, Window End, Delivered, Status
+    const headers = ['Owner', 'Elevator/Buyer', 'Contract #', 'Crop', 'Bushels', 'Price', 'Window Start', 'Window End', 'Delivered', 'Remaining', 'Status'];
+    const rows = contracts
+      .filter(c => !c.is_spot_sale)
+      .map(c => {
+        const pct = c.percent_filled || 0;
+        const status = pct >= 100 ? 'Complete' : pct > 0 ? 'In Progress' : 'Open';
+        return [
+          c.owner || '',
+          c.through || '',
+          c.contract_number,
+          c.crop,
+          c.contracted_bushels,
+          '', // Price — not tracked in web app, filled in Excel
+          c.start_date || '',
+          c.end_date || '',
+          c.delivered_bushels,
+          c.remaining_bushels,
+          status,
+        ];
+      });
+
+    const wsData = [headers, ...rows];
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    ws['!cols'] = [14, 14, 16, 12, 12, 10, 12, 12, 12, 12, 12].map(w => ({ wch: w }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Contracts');
+    XLSX.writeFile(wb, `contracts_sync_${currentYear}.xlsx`);
+  };
+
   const SortIcon = ({ field }: { field: SortField }) => {
     if (sortField !== field) return <span className="text-gray-500 ml-1">↕</span>;
     return sortDirection === 'asc' ? <span className="ml-1">↑</span> : <span className="ml-1">↓</span>;
@@ -379,6 +414,12 @@ export function ContractsPage() {
             className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg"
           >
             + New Contract
+          </button>
+          <button
+            onClick={handleContractExport}
+            className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg"
+          >
+            Export for Excel
           </button>
           <button
             onClick={() => setShowImportModal(true)}
