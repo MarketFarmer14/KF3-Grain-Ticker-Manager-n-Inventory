@@ -138,7 +138,7 @@ export function createSpotSaleContract(ticket: {
   crop_year: string;
   bushels: number;
 }) {
-  const date = new Date(ticket.ticket_date).toLocaleDateString();
+  const date = new Date(ticket.ticket_date + 'T00:00:00').toLocaleDateString();
   return {
     contract_number: `SPOT-${date}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`,
     crop: ticket.crop,

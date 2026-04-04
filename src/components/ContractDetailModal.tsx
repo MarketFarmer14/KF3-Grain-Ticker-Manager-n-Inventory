@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import type { Database } from '../lib/database.types';
+import { formatDate } from '../lib/constants';
 
 type Contract = Database['public']['Tables']['contracts']['Row'];
 type Ticket = Database['public']['Tables']['tickets']['Row'];
@@ -13,9 +14,10 @@ interface SplitWithTicket extends TicketSplit {
 interface ContractDetailModalProps {
   contract: Contract;
   onClose: () => void;
+  onDataChanged?: () => void;
 }
 
-export function ContractDetailModal({ contract, onClose }: ContractDetailModalProps) {
+export function ContractDetailModal({ contract, onClose, onDataChanged }: ContractDetailModalProps) {
   const [splits, setSplits] = useState<SplitWithTicket[]>([]);
   const [legacyTickets, setLegacyTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
@@ -64,6 +66,39 @@ export function ContractDetailModal({ contract, onClose }: ContractDetailModalPr
     setSplits(splitsWithTickets);
     setLegacyTickets(legacy);
     setLoading(false);
+  };
+
+  // Remove a split from this contract
+  const handleRemoveSplit = async (split: SplitWithTicket) => {
+    if (!confirm(`Remove ${split.bushels.toLocaleString()} bu from this contract?`)) return;
+
+    await supabase.from('ticket_splits').delete().eq('id', split.id);
+
+    // If this was the ticket's primary contract, check if other splits exist
+    if (split.ticket?.contract_id === contract.id) {
+      const { data: remaining } = await supabase
+        .from('ticket_splits')
+        .select('contract_id')
+        .eq('ticket_id', split.ticket_id)
+        .limit(1);
+
+      // Update ticket's primary contract to next split, or null
+      const nextContractId = remaining && remaining.length > 0 ? remaining[0].contract_id : null;
+      await supabase.from('tickets').update({ contract_id: nextContractId }).eq('id', split.ticket_id);
+    }
+
+    fetchAllocations();
+    onDataChanged?.();
+  };
+
+  // Unassign a legacy ticket from this contract
+  const handleUnassignTicket = async (ticket: Ticket) => {
+    if (!confirm(`Unassign ticket #${ticket.ticket_number || ticket.id.slice(0, 8)} from this contract?`)) return;
+
+    await supabase.from('tickets').update({ contract_id: null }).eq('id', ticket.id);
+
+    fetchAllocations();
+    onDataChanged?.();
   };
 
   // Total bushels: splits use split.bushels (correct), legacy use ticket.bushels
@@ -161,9 +196,9 @@ export function ContractDetailModal({ contract, onClose }: ContractDetailModalPr
           <div className="bg-gray-700 rounded-lg p-3 mb-6 flex justify-between">
             <span className="text-gray-400">Delivery Window</span>
             <span className="text-white">
-              {contract.start_date ? new Date(contract.start_date).toLocaleDateString() : 'Open'}
+              {contract.start_date ? formatDate(contract.start_date) : 'Open'}
               {' — '}
-              {contract.end_date ? new Date(contract.end_date).toLocaleDateString() : 'Open'}
+              {contract.end_date ? formatDate(contract.end_date) : 'Open'}
             </span>
           </div>
         )}
@@ -199,6 +234,7 @@ export function ContractDetailModal({ contract, onClose }: ContractDetailModalPr
                     <th className="px-3 py-2 text-left text-gray-300 text-sm">Through</th>
                     <th className="px-3 py-2 text-left text-gray-300 text-sm">Truck</th>
                     <th className="px-3 py-2 text-left text-gray-300 text-sm">Status</th>
+                    <th className="px-3 py-2 text-center text-gray-300 text-sm">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -206,7 +242,7 @@ export function ContractDetailModal({ contract, onClose }: ContractDetailModalPr
                   {splits.map((split) => (
                     <tr key={split.id} className="border-t border-gray-700 hover:bg-gray-700">
                       <td className="px-3 py-2 text-white text-sm">
-                        {split.ticket ? new Date(split.ticket.ticket_date).toLocaleDateString() : '-'}
+                        {split.ticket ? formatDate(split.ticket.ticket_date) : '-'}
                       </td>
                       <td className="px-3 py-2 text-white text-sm">
                         {split.ticket?.ticket_number || '-'}
@@ -231,13 +267,21 @@ export function ContractDetailModal({ contract, onClose }: ContractDetailModalPr
                           {split.ticket?.status || 'split'}
                         </span>
                       </td>
+                      <td className="px-3 py-2 text-center">
+                        <button
+                          onClick={() => handleRemoveSplit(split)}
+                          className="px-2 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-xs"
+                        >
+                          Remove
+                        </button>
+                      </td>
                     </tr>
                   ))}
                   {/* Legacy tickets (no splits, direct contract_id assignment) */}
                   {legacyTickets.map((ticket) => (
                     <tr key={ticket.id} className="border-t border-gray-700 hover:bg-gray-700">
                       <td className="px-3 py-2 text-white text-sm">
-                        {new Date(ticket.ticket_date).toLocaleDateString()}
+                        {formatDate(ticket.ticket_date)}
                       </td>
                       <td className="px-3 py-2 text-white text-sm">
                         {ticket.ticket_number || '-'}
@@ -262,6 +306,14 @@ export function ContractDetailModal({ contract, onClose }: ContractDetailModalPr
                           {ticket.status}
                         </span>
                       </td>
+                      <td className="px-3 py-2 text-center">
+                        <button
+                          onClick={() => handleUnassignTicket(ticket)}
+                          className="px-2 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-xs"
+                        >
+                          Unassign
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -273,7 +325,7 @@ export function ContractDetailModal({ contract, onClose }: ContractDetailModalPr
                     <td className="px-3 py-2 text-right text-white text-sm font-bold">
                       {totalDelivered.toLocaleString()}
                     </td>
-                    <td colSpan={4}></td>
+                    <td colSpan={5}></td>
                   </tr>
                 </tfoot>
               </table>

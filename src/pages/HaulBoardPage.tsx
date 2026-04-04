@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { ContractDetailModal } from '../components/ContractDetailModal';
+import { formatDate } from '../lib/constants';
 import type { Database } from '../lib/database.types';
 
 type Contract = Database['public']['Tables']['contracts']['Row'];
@@ -310,7 +311,7 @@ export function HaulBoardPage() {
                   <div className="flex justify-between">
                     <span>Window:</span>
                     <span>
-                      {contract.start_date ? new Date(contract.start_date).toLocaleDateString() : '—'} → {contract.end_date ? new Date(contract.end_date).toLocaleDateString() : '—'}
+                      {contract.start_date ? formatDate(contract.start_date) : '—'} → {contract.end_date ? formatDate(contract.end_date) : '—'}
                     </span>
                   </div>
                 </div>
@@ -398,7 +399,7 @@ export function HaulBoardPage() {
                       </div>
                     </td>
                     <td className="px-3 py-2 text-white text-sm">
-                      {contract.end_date ? new Date(contract.end_date).toLocaleDateString() : '—'}
+                      {contract.end_date ? formatDate(contract.end_date) : '—'}
                     </td>
                     <td className="px-3 py-2">
                       <span className={`px-2 py-1 rounded text-xs font-semibold ${
@@ -426,6 +427,7 @@ export function HaulBoardPage() {
         <ContractDetailModal
           contract={detailContract}
           onClose={() => setDetailContract(null)}
+          onDataChanged={() => fetchContracts()}
         />
       )}
     </div>

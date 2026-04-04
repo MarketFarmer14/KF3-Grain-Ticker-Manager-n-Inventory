@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { normalizeContractFields } from '../lib/constants';
+import { normalizeContractFields, formatDate } from '../lib/constants';
 import { ContractDetailModal } from '../components/ContractDetailModal';
 import type { Database } from '../lib/database.types';
 import * as XLSX from 'xlsx';
@@ -598,10 +598,10 @@ export function ContractsPage() {
                     );
                   })()}
                   <td className="px-4 py-3 text-white text-sm">
-                    {contract.start_date ? new Date(contract.start_date).toLocaleDateString() : '—'}
+                    {contract.start_date ? formatDate(contract.start_date) : '—'}
                   </td>
                   <td className="px-4 py-3 text-white text-sm">
-                    {contract.end_date ? new Date(contract.end_date).toLocaleDateString() : '—'}
+                    {contract.end_date ? formatDate(contract.end_date) : '—'}
                   </td>
                   <td className="px-4 py-3 text-center">
                     <button
@@ -909,6 +909,7 @@ export function ContractsPage() {
         <ContractDetailModal
           contract={detailContract}
           onClose={() => setDetailContract(null)}
+          onDataChanged={() => fetchContracts()}
         />
       )}
 

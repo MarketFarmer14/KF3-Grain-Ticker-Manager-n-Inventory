@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
-import { PERSON_OPTIONS, ORIGIN_LOCATIONS, normalizeTicketFields } from '../lib/constants';
+import { PERSON_OPTIONS, ORIGIN_LOCATIONS, normalizeTicketFields, formatDate } from '../lib/constants';
 import { findBestContract, autoAssignTicket } from '../lib/contractMatcher';
 import type { SplitAssignment } from '../lib/contractMatcher';
 import { SplitTicketModal } from '../components/SplitTicketModal';
@@ -12,7 +12,7 @@ import * as XLSX from 'xlsx';
 type Ticket = Database['public']['Tables']['tickets']['Row'];
 type Contract = Database['public']['Tables']['contracts']['Row'];
 type TicketSplit = Database['public']['Tables']['ticket_splits']['Row'];
-type SortField = 'ticket_date' | 'ticket_number' | 'person' | 'crop' | 'bushels' | 'delivery_location' | 'through' | 'truck' | 'dockage' | 'status';
+type SortField = 'ticket_date' | 'ticket_number' | 'person' | 'crop' | 'bushels' | 'delivery_location' | 'through' | 'truck' | 'dockage' | 'status' | 'contract';
 type SortDir = 'asc' | 'desc';
 
 interface SortRule {
@@ -258,6 +258,12 @@ export function TicketsPage() {
           case 'truck': aVal = a.truck || ''; bVal = b.truck || ''; break;
           case 'dockage': aVal = a.dockage || 0; bVal = b.dockage || 0; break;
           case 'status': aVal = a.status; bVal = b.status; break;
+          case 'contract': {
+            const ac = contracts.find(c => c.id === a.contract_id);
+            const bc = contracts.find(c => c.id === b.contract_id);
+            aVal = ac?.contract_number || ''; bVal = bc?.contract_number || '';
+            break;
+          }
           default: aVal = ''; bVal = '';
         }
         let cmp: number;
@@ -932,6 +938,7 @@ export function TicketsPage() {
                   ['truck', 'Truck', 'text-left'],
                   ['dockage', 'Dockage', 'text-right'],
                   ['status', 'Status', 'text-left'],
+                  ['contract', 'Contract', 'text-left'],
                 ] as [SortField, string, string][]).map(([field, label, align]) => (
                   <th
                     key={field}
@@ -941,7 +948,6 @@ export function TicketsPage() {
                     {label}{sortIndicator(field)}
                   </th>
                 ))}
-                <th className="px-4 py-3 text-left text-white">Contract</th>
                 {showTrash && <th className="px-4 py-3 text-left text-white">Deleted</th>}
                 <th className="px-4 py-3 text-center text-white">Actions</th>
               </tr>
@@ -977,7 +983,7 @@ export function TicketsPage() {
                       </td>
                     )}
                     <td className="px-4 py-3 text-white">
-                      {new Date(ticket.ticket_date).toLocaleDateString()}
+                      {formatDate(ticket.ticket_date)}
                     </td>
                     <td className="px-4 py-3 text-white">
                       {ticket.ticket_number || '-'}
@@ -1039,7 +1045,7 @@ export function TicketsPage() {
                     </td>
                     {showTrash && (
                       <td className="px-4 py-3 text-white text-sm">
-                        {ticket.deleted_at ? new Date(ticket.deleted_at).toLocaleDateString() : '-'}
+                        {formatDate(ticket.deleted_at)}
                       </td>
                     )}
                     <td className="px-4 py-3 text-center">

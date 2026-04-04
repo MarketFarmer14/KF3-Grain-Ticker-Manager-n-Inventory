@@ -150,3 +150,10 @@ export function normalizeContractFields(data: {
   if (result.destination) result.destination = result.destination.trim();
   return result;
 }
+
+// Format a date string (YYYY-MM-DD) for display without timezone shift
+export function formatDate(dateStr: string | null | undefined): string {
+  if (!dateStr) return '-';
+  // Append T00:00:00 to parse as local time, not UTC
+  return new Date(dateStr + 'T00:00:00').toLocaleDateString();
+}

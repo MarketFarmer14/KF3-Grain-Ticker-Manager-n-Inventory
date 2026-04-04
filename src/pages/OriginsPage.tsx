@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
-import { ORIGIN_LOCATIONS } from '../lib/constants';
+import { ORIGIN_LOCATIONS, formatDate } from '../lib/constants';
 import type { Database } from '../lib/database.types';
 
 type Ticket = Database['public']['Tables']['tickets']['Row'];
@@ -281,7 +281,7 @@ export function OriginsPage() {
                         const isCorn = (ticket.crop || '').toLowerCase() === 'corn';
                         return (
                           <tr key={ticket.id} className={`border-t border-gray-700 ${isCorn ? 'bg-yellow-900 bg-opacity-20' : 'bg-green-900 bg-opacity-20'}`}>
-                            <td className="px-3 py-2 text-white text-sm">{new Date(ticket.ticket_date).toLocaleDateString()}</td>
+                            <td className="px-3 py-2 text-white text-sm">{formatDate(ticket.ticket_date)}</td>
                             <td className="px-3 py-2 text-white text-sm">{ticket.ticket_number || '-'}</td>
                             <td className="px-3 py-2 text-white text-sm">{ticket.person}</td>
                             <td className="px-3 py-2 text-white text-sm font-semibold">{ticket.crop}</td>
