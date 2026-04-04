@@ -58,6 +58,7 @@ export function ReviewQueuePage() {
   const [edits, setEdits] = useState<Record<string, EditState>>({});
   const [saving, setSaving] = useState<string | null>(null);
   const [splittingTicket, setSplittingTicket] = useState<Ticket | null>(null);
+  const [contractActuals, setContractActuals] = useState<Record<string, number>>({});
 
   const currentYear = localStorage.getItem('grain_ticket_year') || new Date().getFullYear().toString();
 
@@ -76,7 +77,7 @@ export function ReviewQueuePage() {
   const fetchData = async () => {
     setLoading(true);
 
-    const [ticketsRes, contractsRes] = await Promise.all([
+    const [ticketsRes, contractsRes, splitsRes, approvedRes] = await Promise.all([
       supabase
         .from('tickets')
         .select('*')
@@ -88,6 +89,16 @@ export function ReviewQueuePage() {
         .from('contracts')
         .select('*')
         .eq('crop_year', currentYear),
+      supabase
+        .from('ticket_splits')
+        .select('contract_id, bushels, ticket_id'),
+      supabase
+        .from('tickets')
+        .select('id, contract_id, bushels')
+        .eq('crop_year', currentYear)
+        .eq('deleted', false)
+        .eq('status', 'approved')
+        .not('contract_id', 'is', null),
     ]);
 
     if (ticketsRes.error) console.error('Error fetching tickets:', ticketsRes.error);
@@ -96,6 +107,19 @@ export function ReviewQueuePage() {
     const ticketData = ticketsRes.data || [];
     setTickets(ticketData);
     setContracts(contractsRes.data || []);
+
+    // Calculate actual delivered per contract
+    const actuals: Record<string, number> = {};
+    const idsWithSplits = new Set((splitsRes.data || []).map(s => s.ticket_id));
+    (splitsRes.data || []).forEach(s => {
+      actuals[s.contract_id] = (actuals[s.contract_id] || 0) + s.bushels;
+    });
+    (approvedRes.data || []).forEach(t => {
+      if (t.contract_id && !idsWithSplits.has(t.id)) {
+        actuals[t.contract_id] = (actuals[t.contract_id] || 0) + t.bushels;
+      }
+    });
+    setContractActuals(actuals);
 
     // Initialize edit state for each ticket
     const editMap: Record<string, EditState> = {};
@@ -106,6 +130,8 @@ export function ReviewQueuePage() {
 
     setLoading(false);
   };
+
+  const getActualRemaining = (c: Contract) => c.contracted_bushels - (contractActuals[c.id] || 0);
 
   const updateEdit = (ticketId: string, field: keyof EditState, value: string) => {
     setEdits((prev) => ({
@@ -261,7 +287,8 @@ export function ReviewQueuePage() {
         through: edit.through,
         bushels: parseFloat(edit.bushels) || 0,
       },
-      contracts
+      contracts,
+      contractActuals
     );
 
     // Open confirmation modal with proposed splits
@@ -309,7 +336,7 @@ export function ReviewQueuePage() {
 
   // Add a new split in the confirmation modal
   const addConfirmSplit = () => {
-    const assignable = contracts.filter(c => !c.is_spot_sale && (c.percent_filled || 0) < 100 && c.remaining_bushels > 0);
+    const assignable = contracts.filter(c => !c.is_spot_sale && getActualRemaining(c) > 0);
     if (assignable.length === 0) return;
     const edit = confirmTicket ? edits[confirmTicket.id] : null;
     const newSplit: SplitAssignment = {
@@ -713,7 +740,7 @@ export function ReviewQueuePage() {
                           className="w-full px-2 py-1.5 bg-gray-700 text-white rounded text-sm border border-gray-500"
                         >
                           {contracts
-                            .filter(c => !c.is_spot_sale && (c.percent_filled || 0) < 100)
+                            .filter(c => !c.is_spot_sale && getActualRemaining(c) > 0)
                             .map(c => (
                               <option key={c.id} value={c.id}>
                                 #{c.contract_number} — {c.owner} {c.crop} via {c.through}
@@ -727,7 +754,7 @@ export function ReviewQueuePage() {
                         </select>
                       </td>
                       <td className="py-2 px-2 text-gray-300 text-sm">
-                        {split.contract.remaining_bushels.toLocaleString()} bu
+                        {getActualRemaining(split.contract).toLocaleString()} bu
                       </td>
                       <td className="py-2 px-2">
                         <input

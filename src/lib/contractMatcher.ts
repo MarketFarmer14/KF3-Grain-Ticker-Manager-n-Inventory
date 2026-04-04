@@ -15,6 +15,14 @@ export interface AutoAssignmentResult {
   needsSpotSale: boolean;
 }
 
+// Get actual remaining for a contract using split totals (source of truth)
+function getRemaining(contract: Contract, actualDelivered?: Record<string, number>): number {
+  if (actualDelivered) {
+    return contract.contracted_bushels - (actualDelivered[contract.id] || 0);
+  }
+  return contract.remaining_bushels;
+}
+
 // Find best matching contract for a ticket (legacy single-contract match)
 export function findBestContract(
   ticket: {
@@ -23,33 +31,31 @@ export function findBestContract(
     through: string;
     bushels: number;
   },
-  contracts: Contract[]
+  contracts: Contract[],
+  actualDelivered?: Record<string, number>
 ): AutoAssignmentResult {
   const splits: SplitAssignment[] = [];
   let remainingBushels = ticket.bushels;
 
-  // Filter contracts that match person, crop, and through
   const matchingContracts = contracts.filter((c) => {
     const personMatch = c.owner === ticket.person;
     const cropMatch = c.crop === ticket.crop;
     const throughMatch = c.through === ticket.through;
-    const notFilled = (c.percent_filled || 0) < 100;
     const notSpot = !c.is_spot_sale;
-    const hasRemaining = c.remaining_bushels > 0;
+    const hasRemaining = getRemaining(c, actualDelivered) > 0;
 
-    return personMatch && cropMatch && throughMatch && notFilled && notSpot && hasRemaining;
+    return personMatch && cropMatch && throughMatch && notSpot && hasRemaining;
   });
 
-  // Sort by remaining bushels (SMALLEST FIRST)
   const sorted = matchingContracts.sort((a, b) => {
-    return a.remaining_bushels - b.remaining_bushels;
+    return getRemaining(a, actualDelivered) - getRemaining(b, actualDelivered);
   });
 
-  // Assign bushels to contracts (smallest first)
   for (const contract of sorted) {
     if (remainingBushels <= 0) break;
 
-    const bushelsToAssign = Math.min(remainingBushels, contract.remaining_bushels);
+    const available = getRemaining(contract, actualDelivered);
+    const bushelsToAssign = Math.min(remainingBushels, available);
 
     splits.push({
       contract,
@@ -76,7 +82,8 @@ export function autoAssignTicket(
     through: string;
     bushels: number;
   },
-  contracts: Contract[]
+  contracts: Contract[],
+  actualDelivered?: Record<string, number>
 ): AutoAssignmentResult {
   const splits: SplitAssignment[] = [];
   let remainingBushels = ticket.bushels;
@@ -86,23 +93,23 @@ export function autoAssignTicket(
     const personMatch = (c.owner || '').trim().toLowerCase() === (ticket.person || '').trim().toLowerCase();
     const cropMatch = (c.crop || '').trim().toLowerCase() === (ticket.crop || '').trim().toLowerCase();
     const throughMatch = (c.through || '').trim().toLowerCase() === (ticket.through || '').trim().toLowerCase();
-    const notFilled = (c.percent_filled || 0) < 100;
     const notSpot = !c.is_spot_sale;
-    const hasRemaining = c.remaining_bushels > 0;
+    const hasRemaining = getRemaining(c, actualDelivered) > 0;
 
-    return personMatch && cropMatch && throughMatch && notFilled && notSpot && hasRemaining;
+    return personMatch && cropMatch && throughMatch && notSpot && hasRemaining;
   });
 
   // Sort by remaining bushels (SMALLEST FIRST)
   const sorted = [...matchingContracts].sort((a, b) => {
-    return a.remaining_bushels - b.remaining_bushels;
+    return getRemaining(a, actualDelivered) - getRemaining(b, actualDelivered);
   });
 
   // Assign bushels to contracts (smallest first)
   for (const contract of sorted) {
     if (remainingBushels <= 0) break;
 
-    const bushelsToAssign = Math.min(remainingBushels, contract.remaining_bushels);
+    const available = getRemaining(contract, actualDelivered);
+    const bushelsToAssign = Math.min(remainingBushels, available);
 
     splits.push({
       contract,

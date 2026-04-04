@@ -423,7 +423,8 @@ export function TicketsPage() {
     setRematching(ticket.id);
     const result = autoAssignTicket(
       { person: ticket.person, crop: ticket.crop, through: ticket.through, bushels: ticket.bushels },
-      contracts
+      contracts,
+      splitTotals
     );
 
     if (result.splits.length > 0) {
@@ -542,7 +543,7 @@ export function TicketsPage() {
   };
 
   const addEditSplit = () => {
-    const assignable = contracts.filter(c => !c.is_spot_sale && (c.percent_filled || 0) < 100 && c.remaining_bushels > 0);
+    const assignable = contracts.filter(c => !c.is_spot_sale && getActualRemaining(c) > 0);
     if (assignable.length === 0) return;
     const newSplit: SplitAssignment = {
       contract: assignable[0],
@@ -608,7 +609,8 @@ export function TicketsPage() {
     for (const ticket of unassigned) {
       const matchResult = findBestContract(
         { person: ticket.person, crop: ticket.crop, through: ticket.through, bushels: ticket.bushels },
-        contracts
+        contracts,
+        splitTotals
       );
 
       if (matchResult.splits.length > 0) {
@@ -654,7 +656,8 @@ export function TicketsPage() {
         if (!ticket) continue;
         const matchResult = findBestContract(
           { person: ticket.person, crop: ticket.crop, through: ticket.through, bushels: ticket.bushels },
-          contracts
+          contracts,
+          splitTotals
         );
         if (matchResult.splits.length > 0) {
           const { error } = await supabase
@@ -707,7 +710,23 @@ export function TicketsPage() {
     return c ? `#${c.contract_number}` : 'Unknown';
   };
 
-  const assignableContracts = contracts.filter(c => !c.is_spot_sale && (c.percent_filled || 0) < 100);
+  // Calculate actual delivered per contract from splits + legacy tickets
+  const splitTotals: Record<string, number> = {};
+  const ticketIdsWithSplits = new Set<string>();
+  Object.values(splits).flat().forEach(s => {
+    splitTotals[s.contract_id] = (splitTotals[s.contract_id] || 0) + s.bushels;
+    ticketIdsWithSplits.add(s.ticket_id);
+  });
+  // Add legacy tickets (contract_id set, no splits)
+  tickets.forEach(t => {
+    if (t.contract_id && t.status === 'approved' && !t.deleted && !ticketIdsWithSplits.has(t.id)) {
+      splitTotals[t.contract_id] = (splitTotals[t.contract_id] || 0) + t.bushels;
+    }
+  });
+
+  const getActualRemaining = (c: Contract) => c.contracted_bushels - (splitTotals[c.id] || 0);
+
+  const assignableContracts = contracts.filter(c => !c.is_spot_sale && getActualRemaining(c) > 0);
 
   const handleSoftDelete = async (ticketId: string) => {
     if (!confirm('Move this ticket to trash?')) return;
@@ -997,7 +1016,7 @@ export function TicketsPage() {
                             <option value="">None (unassign)</option>
                             {assignableContracts.map(c => (
                               <option key={c.id} value={c.id}>
-                                #{c.contract_number} — {c.owner} {c.crop} {c.through} ({c.remaining_bushels.toLocaleString()} remaining)
+                                #{c.contract_number} — {c.owner} {c.crop} {c.through} ({getActualRemaining(c).toLocaleString()} remaining)
                               </option>
                             ))}
                           </select>
@@ -1237,10 +1256,10 @@ export function TicketsPage() {
                           className="w-full px-2 py-1.5 bg-gray-700 text-white rounded text-sm border border-gray-500"
                         >
                           {contracts
-                            .filter(c => !c.is_spot_sale && (c.percent_filled || 0) < 100)
+                            .filter(c => !c.is_spot_sale && getActualRemaining(c) > 0)
                             .map(c => (
                               <option key={c.id} value={c.id}>
-                                #{c.contract_number} — {c.owner} {c.crop} via {c.through} ({c.remaining_bushels.toLocaleString()} rem)
+                                #{c.contract_number} — {c.owner} {c.crop} via {c.through} ({getActualRemaining(c).toLocaleString()} rem)
                               </option>
                             ))}
                         </select>
