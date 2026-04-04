@@ -93,8 +93,17 @@ export function ReviewQueuePage() {
     if (ticketsRes.error) console.error('Error fetching tickets:', ticketsRes.error);
     if (contractsRes.error) console.error('Error fetching contracts:', contractsRes.error);
 
-    setTickets(ticketsRes.data || []);
+    const ticketData = ticketsRes.data || [];
+    setTickets(ticketData);
     setContracts(contractsRes.data || []);
+
+    // Initialize edit state for each ticket
+    const editMap: Record<string, EditState> = {};
+    ticketData.forEach((t) => {
+      editMap[t.id] = ticketToEdit(t);
+    });
+    setEdits(editMap);
+
     setLoading(false);
   };
 
