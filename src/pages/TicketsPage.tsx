@@ -456,6 +456,10 @@ export function TicketsPage() {
   };
 
   const handleManualAssign = async (ticketId: string, contractId: string) => {
+    const ticket = tickets.find(t => t.id === ticketId);
+    if (!ticket) { setAssigningId(null); return; }
+
+    // Update ticket's primary contract
     const { error } = await supabase
       .from('tickets')
       .update({ contract_id: contractId || null })
@@ -463,9 +467,23 @@ export function TicketsPage() {
 
     if (error) {
       alert('Failed to assign: ' + error.message);
-    } else {
-      fetchTickets();
+      setAssigningId(null);
+      return;
     }
+
+    // Sync splits: delete old, create single split for full bushels on new contract
+    await supabase.from('ticket_splits').delete().eq('ticket_id', ticketId);
+    if (contractId) {
+      await supabase.from('ticket_splits').insert({
+        ticket_id: ticketId,
+        contract_id: contractId,
+        person: ticket.person,
+        bushels: ticket.bushels,
+      });
+    }
+
+    setAssigningId(null);
+    fetchTickets();
   };
 
   // Edit Splits modal handlers
