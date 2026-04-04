@@ -130,6 +130,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           <NavItem to="/contracts" icon="📋" label="Contracts" active={location.pathname === '/contracts'} onClick={() => setSidebarOpen(false)} />
           <NavItem to="/haul-board" icon="🚜" label="Haul Board" active={location.pathname === '/haul-board'} onClick={() => setSidebarOpen(false)} />
           <NavItem to="/inventory" icon="📊" label="Inventory" active={location.pathname === '/inventory'} onClick={() => setSidebarOpen(false)} />
+          <NavItem to="/origins" icon="🏗️" label="Origins" active={location.pathname === '/origins'} onClick={() => setSidebarOpen(false)} />
         </nav>
 
         {/* Logout */}

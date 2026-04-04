@@ -8,6 +8,7 @@ import { TicketsPage } from './pages/TicketsPage';
 import { ContractsPage } from './pages/ContractsPage';
 import { HaulBoardPage } from './pages/HaulBoardPage';
 import { InventoryPage } from './pages/InventoryPage';
+import { OriginsPage } from './pages/OriginsPage';
 import { Layout } from './components/Layout';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -28,6 +29,7 @@ const App: React.FC = () => {
           <Route path="/contracts" element={<ProtectedRoute><ContractsPage /></ProtectedRoute>} />
           <Route path="/haul-board" element={<ProtectedRoute><HaulBoardPage /></ProtectedRoute>} />
           <Route path="/inventory" element={<ProtectedRoute><InventoryPage /></ProtectedRoute>} />
+          <Route path="/origins" element={<ProtectedRoute><OriginsPage /></ProtectedRoute>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AuthProvider>

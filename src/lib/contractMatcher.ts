@@ -15,23 +15,8 @@ export interface AutoAssignmentResult {
   needsSpotSale: boolean;
 }
 
-// Normalize location strings for fuzzy matching
-function normalizeLocation(location: string): string {
-  return location
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, '')
-    .trim();
-}
-
-// Check if two locations match (fuzzy)
-function locationsMatch(loc1: string, loc2: string): boolean {
-  const normalized1 = normalizeLocation(loc1);
-  const normalized2 = normalizeLocation(loc2);
-  return normalized1 === normalized2;
-}
-
-// Auto-assign ticket across multiple contracts (smallest remaining first)
-export function autoAssignTicket(
+// Find best matching contract for a ticket (legacy single-contract match)
+export function findBestContract(
   ticket: {
     person: string;
     crop: string;
@@ -52,7 +37,7 @@ export function autoAssignTicket(
     const notSpot = !c.is_spot_sale;
     const hasRemaining = c.remaining_bushels > 0;
 
-    return personMatch && cropMatch && throughMatch && notFilled && !notSpot && hasRemaining;
+    return personMatch && cropMatch && throughMatch && notFilled && notSpot && hasRemaining;
   });
 
   // Sort by remaining bushels (SMALLEST FIRST)
@@ -83,7 +68,60 @@ export function autoAssignTicket(
   };
 }
 
-// Create spot sale contract for leftover bushels
+// Auto-assign ticket across multiple contracts (smallest remaining first)
+export function autoAssignTicket(
+  ticket: {
+    person: string;
+    crop: string;
+    through: string;
+    bushels: number;
+  },
+  contracts: Contract[]
+): AutoAssignmentResult {
+  const splits: SplitAssignment[] = [];
+  let remainingBushels = ticket.bushels;
+
+  // Filter contracts that match person, crop, and through (case-insensitive, trimmed)
+  const matchingContracts = contracts.filter((c) => {
+    const personMatch = (c.owner || '').trim().toLowerCase() === (ticket.person || '').trim().toLowerCase();
+    const cropMatch = (c.crop || '').trim().toLowerCase() === (ticket.crop || '').trim().toLowerCase();
+    const throughMatch = (c.through || '').trim().toLowerCase() === (ticket.through || '').trim().toLowerCase();
+    const notFilled = (c.percent_filled || 0) < 100;
+    const notSpot = !c.is_spot_sale;
+    const hasRemaining = c.remaining_bushels > 0;
+
+    return personMatch && cropMatch && throughMatch && notFilled && notSpot && hasRemaining;
+  });
+
+  // Sort by remaining bushels (SMALLEST FIRST)
+  const sorted = [...matchingContracts].sort((a, b) => {
+    return a.remaining_bushels - b.remaining_bushels;
+  });
+
+  // Assign bushels to contracts (smallest first)
+  for (const contract of sorted) {
+    if (remainingBushels <= 0) break;
+
+    const bushelsToAssign = Math.min(remainingBushels, contract.remaining_bushels);
+
+    splits.push({
+      contract,
+      bushels: bushelsToAssign,
+      person: ticket.person,
+    });
+
+    remainingBushels -= bushelsToAssign;
+  }
+
+  return {
+    splits,
+    totalAssigned: ticket.bushels - remainingBushels,
+    remainder: remainingBushels,
+    needsSpotSale: remainingBushels > 0,
+  };
+}
+
+// Create spot sale contract
 export function createSpotSaleContract(ticket: {
   person: string;
   crop: string;

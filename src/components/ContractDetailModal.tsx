@@ -1,0 +1,224 @@
+import React, { useState, useEffect } from 'react';
+import { supabase } from '../lib/supabase';
+import type { Database } from '../lib/database.types';
+
+type Contract = Database['public']['Tables']['contracts']['Row'];
+type Ticket = Database['public']['Tables']['tickets']['Row'];
+
+interface ContractDetailModalProps {
+  contract: Contract;
+  onClose: () => void;
+}
+
+export function ContractDetailModal({ contract, onClose }: ContractDetailModalProps) {
+  const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchTickets();
+  }, [contract.id]);
+
+  const fetchTickets = async () => {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from('tickets')
+      .select('*')
+      .eq('contract_id', contract.id)
+      .eq('deleted', false)
+      .order('ticket_date', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching contract tickets:', error);
+    } else {
+      setTickets(data || []);
+    }
+    setLoading(false);
+  };
+
+  const totalDelivered = tickets.reduce((sum, t) => sum + (t.bushels || 0), 0);
+  const percentFilled = contract.contracted_bushels > 0
+    ? ((contract.delivered_bushels / contract.contracted_bushels) * 100).toFixed(1)
+    : '0.0';
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-gray-800 rounded-lg p-6 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+        {/* Header */}
+        <div className="flex justify-between items-start mb-6">
+          <div>
+            <h2 className="text-2xl font-bold text-white">
+              Contract #{contract.contract_number}
+              {contract.is_spot_sale && (
+                <span className="ml-2 px-2 py-1 bg-purple-600 text-white text-xs rounded">SPOT</span>
+              )}
+            </h2>
+            <p className="text-gray-400 mt-1">{contract.owner || 'No Owner'}</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="px-3 py-1 bg-gray-600 hover:bg-gray-500 text-white rounded text-lg font-bold"
+          >
+            X
+          </button>
+        </div>
+
+        {/* Contract Details Grid */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+          <div className="bg-gray-700 rounded-lg p-3">
+            <div className="text-gray-400 text-xs">Crop</div>
+            <div className="text-white font-semibold">{contract.crop}</div>
+          </div>
+          <div className="bg-gray-700 rounded-lg p-3">
+            <div className="text-gray-400 text-xs">Through</div>
+            <div className="text-white font-semibold">{contract.through || '-'}</div>
+          </div>
+          <div className="bg-gray-700 rounded-lg p-3">
+            <div className="text-gray-400 text-xs">Destination</div>
+            <div className="text-white font-semibold">{contract.destination}</div>
+          </div>
+          <div className="bg-gray-700 rounded-lg p-3">
+            <div className="text-gray-400 text-xs">Priority</div>
+            <div className="text-white font-semibold">{contract.priority}</div>
+          </div>
+        </div>
+
+        {/* Bushel Progress */}
+        <div className="bg-gray-700 rounded-lg p-4 mb-6">
+          <div className="flex justify-between items-center mb-2">
+            <span className="text-gray-300 font-medium">Delivery Progress</span>
+            <span className="text-white font-bold">{percentFilled}%</span>
+          </div>
+          <div className="w-full bg-gray-600 rounded-full h-4 mb-3">
+            <div
+              className={`h-4 rounded-full ${
+                (contract.percent_filled || 0) >= 100
+                  ? 'bg-gray-500'
+                  : (contract.percent_filled || 0) >= 75
+                  ? 'bg-yellow-500'
+                  : 'bg-emerald-500'
+              }`}
+              style={{ width: `${Math.min(contract.percent_filled || 0, 100)}%` }}
+            ></div>
+          </div>
+          <div className="grid grid-cols-3 gap-4 text-center">
+            <div>
+              <div className="text-gray-400 text-xs">Contracted</div>
+              <div className="text-white font-bold">{contract.contracted_bushels.toLocaleString()}</div>
+            </div>
+            <div>
+              <div className="text-gray-400 text-xs">Delivered</div>
+              <div className="text-white font-bold">{contract.delivered_bushels.toLocaleString()}</div>
+            </div>
+            <div>
+              <div className="text-gray-400 text-xs">Remaining</div>
+              <div className="text-white font-bold">{contract.remaining_bushels.toLocaleString()}</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Delivery Window */}
+        {(contract.start_date || contract.end_date) && (
+          <div className="bg-gray-700 rounded-lg p-3 mb-6 flex justify-between">
+            <span className="text-gray-400">Delivery Window</span>
+            <span className="text-white">
+              {contract.start_date ? new Date(contract.start_date).toLocaleDateString() : 'Open'}
+              {' — '}
+              {contract.end_date ? new Date(contract.end_date).toLocaleDateString() : 'Open'}
+            </span>
+          </div>
+        )}
+
+        {/* Notes */}
+        {contract.notes && (
+          <div className="bg-gray-700 rounded-lg p-3 mb-6">
+            <div className="text-gray-400 text-xs mb-1">Notes</div>
+            <div className="text-white text-sm">{contract.notes}</div>
+          </div>
+        )}
+
+        {/* Allocated Tickets */}
+        <div>
+          <h3 className="text-lg font-bold text-white mb-3">
+            Allocated Tickets ({tickets.length})
+          </h3>
+
+          {loading ? (
+            <div className="text-gray-400 text-center py-4">Loading tickets...</div>
+          ) : tickets.length === 0 ? (
+            <div className="text-gray-400 text-center py-4">No tickets allocated to this contract</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-700">
+                  <tr>
+                    <th className="px-3 py-2 text-left text-gray-300 text-sm">Date</th>
+                    <th className="px-3 py-2 text-left text-gray-300 text-sm">Ticket #</th>
+                    <th className="px-3 py-2 text-left text-gray-300 text-sm">Person</th>
+                    <th className="px-3 py-2 text-right text-gray-300 text-sm">Bushels</th>
+                    <th className="px-3 py-2 text-left text-gray-300 text-sm">Location</th>
+                    <th className="px-3 py-2 text-left text-gray-300 text-sm">Through</th>
+                    <th className="px-3 py-2 text-left text-gray-300 text-sm">Truck</th>
+                    <th className="px-3 py-2 text-left text-gray-300 text-sm">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tickets.map((ticket) => (
+                    <tr key={ticket.id} className="border-t border-gray-700 hover:bg-gray-700">
+                      <td className="px-3 py-2 text-white text-sm">
+                        {new Date(ticket.ticket_date).toLocaleDateString()}
+                      </td>
+                      <td className="px-3 py-2 text-white text-sm">
+                        {ticket.ticket_number || '-'}
+                        {ticket.duplicate_flag && (
+                          <span className="ml-1 px-1 py-0.5 bg-orange-600 rounded text-xs">DUP</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-white text-sm">{ticket.person}</td>
+                      <td className="px-3 py-2 text-right text-white text-sm font-semibold">
+                        {ticket.bushels.toLocaleString()}
+                      </td>
+                      <td className="px-3 py-2 text-white text-sm">{ticket.delivery_location}</td>
+                      <td className="px-3 py-2 text-white text-sm">{ticket.through}</td>
+                      <td className="px-3 py-2 text-white text-sm">{ticket.truck || '-'}</td>
+                      <td className="px-3 py-2 text-sm">
+                        <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
+                          ticket.status === 'approved' ? 'bg-green-600' :
+                          ticket.status === 'rejected' ? 'bg-red-600' :
+                          ticket.status === 'hold' ? 'bg-yellow-600' :
+                          'bg-blue-600'
+                        } text-white`}>
+                          {ticket.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot className="bg-gray-700">
+                  <tr>
+                    <td colSpan={3} className="px-3 py-2 text-gray-300 text-sm font-semibold">
+                      Total: {tickets.length} ticket{tickets.length !== 1 ? 's' : ''}
+                    </td>
+                    <td className="px-3 py-2 text-right text-white text-sm font-bold">
+                      {totalDelivered.toLocaleString()}
+                    </td>
+                    <td colSpan={4}></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {/* Close Button */}
+        <div className="mt-6 flex justify-end">
+          <button
+            onClick={onClose}
+            className="px-6 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded-lg font-semibold"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

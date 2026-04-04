@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { normalizeContractFields } from '../lib/constants';
+import { ContractDetailModal } from '../components/ContractDetailModal';
 import type { Database } from '../lib/database.types';
 import * as XLSX from 'xlsx';
 
@@ -23,6 +24,7 @@ export function ContractsPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [sortField, setSortField] = useState<SortField>('priority');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+  const [detailContract, setDetailContract] = useState<Contract | null>(null);
 
   const [formData, setFormData] = useState<Partial<ContractInsert>>({
     contract_number: '',
@@ -493,7 +495,12 @@ export function ContractsPage() {
                   <td className="px-4 py-3 text-white">{contract.priority}</td>
                   <td className="px-4 py-3 text-white">{contract.owner || '-'}</td>
                   <td className="px-4 py-3 font-semibold text-white">
-                    {contract.contract_number}
+                    <span
+                      onClick={() => setDetailContract(contract)}
+                      className="cursor-pointer text-emerald-400 hover:underline"
+                    >
+                      {contract.contract_number}
+                    </span>
                     {contract.is_spot_sale && (
                       <span className="ml-2 px-2 py-1 bg-purple-600 text-white text-xs rounded">SPOT</span>
                     )}
@@ -810,6 +817,14 @@ export function ContractsPage() {
             </form>
           </div>
         </div>
+      )}
+
+      {/* Contract Detail Modal */}
+      {detailContract && (
+        <ContractDetailModal
+          contract={detailContract}
+          onClose={() => setDetailContract(null)}
+        />
       )}
 
       {/* Import Modal */}

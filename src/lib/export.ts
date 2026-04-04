@@ -1,27 +1,31 @@
 import * as XLSX from 'xlsx';
 
-// Export layout: Date | Person | Elevator/Through | Delivery Point | Bushels
+// Export layout: Crop | Person | Date | Location | Through | Ticket Number | Bushels
 
 interface ExportTicket {
   ticket_date: string;
+  ticket_number: string | null;
   person: string;
+  crop: string;
   through: string;
   delivery_location: string;
   bushels: number;
 }
 
-const HEADERS = ['Date', 'Person', 'Elevator', 'Delivery Point', 'Bushels'];
-const COL_WIDTHS = [12, 14, 14, 20, 12];
+const HEADERS = ['Crop', 'Person', 'Date', 'Location', 'Through', 'Ticket Number', 'Bushels'];
+const COL_WIDTHS = [12, 14, 12, 20, 14, 14, 12];
 
 export const exportTicketsToExcel = (
   tickets: ExportTicket[],
   filename: string = 'grain_tickets.xlsx'
 ) => {
   const rows = tickets.map((t) => [
-    t.ticket_date || '',
+    t.crop || '',
     t.person || '',
-    t.through || '',
+    t.ticket_date || '',
     t.delivery_location || '',
+    t.through || '',
+    t.ticket_number || '',
     t.bushels,
   ]);
 

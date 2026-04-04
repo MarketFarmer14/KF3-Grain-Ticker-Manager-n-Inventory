@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import { ContractDetailModal } from '../components/ContractDetailModal';
 import type { Database } from '../lib/database.types';
 
 type Contract = Database['public']['Tables']['contracts']['Row'];
@@ -16,6 +17,7 @@ export function HaulBoardPage() {
   const [sortField, setSortField] = useState<SortField>('end_date');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const [viewMode, setViewMode] = useState<'cards' | 'list'>('cards');
+  const [detailContract, setDetailContract] = useState<Contract | null>(null);
 
   const currentYear = localStorage.getItem('grain_ticket_year') || new Date().getFullYear().toString();
 
@@ -246,7 +248,12 @@ export function HaulBoardPage() {
             >
               <div className="flex justify-between items-start mb-3">
                 <div>
-                  <div className="text-white font-bold text-lg">#{contract.contract_number}</div>
+                  <div
+                    onClick={() => setDetailContract(contract)}
+                    className="text-emerald-400 font-bold text-lg cursor-pointer hover:underline"
+                  >
+                    #{contract.contract_number}
+                  </div>
                   <div className="text-gray-300 text-sm">{contract.owner || 'No Owner'}</div>
                 </div>
                 <div className="text-right">
@@ -363,8 +370,13 @@ export function HaulBoardPage() {
 
                 return (
                   <tr key={contract.id} className={`border-t border-gray-700 ${rowBgClass}`}>
-                    <td className="px-3 py-2 text-white font-semibold">
-                      #{contract.contract_number}
+                    <td className="px-3 py-2 font-semibold">
+                      <span
+                        onClick={() => setDetailContract(contract)}
+                        className="text-emerald-400 cursor-pointer hover:underline"
+                      >
+                        #{contract.contract_number}
+                      </span>
                       {contract.is_spot_sale && (
                         <span className="ml-1 px-1 py-0.5 bg-purple-600 text-white text-xs rounded">SPOT</span>
                       )}
@@ -407,6 +419,14 @@ export function HaulBoardPage() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {/* Contract Detail Modal */}
+      {detailContract && (
+        <ContractDetailModal
+          contract={detailContract}
+          onClose={() => setDetailContract(null)}
+        />
       )}
     </div>
   );

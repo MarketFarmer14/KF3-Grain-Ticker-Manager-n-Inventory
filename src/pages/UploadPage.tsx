@@ -2,11 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { Camera } from 'lucide-react';
-import { PERSON_OPTIONS } from '../lib/constants';
+import { PERSON_OPTIONS, ORIGIN_LOCATIONS } from '../lib/constants';
 
 export function UploadPage() {
   const navigate = useNavigate();
   const [person, setPerson] = useState(() => localStorage.getItem('grain_last_person') || '');
+  const [origin, setOrigin] = useState(() => localStorage.getItem('grain_last_origin') || '');
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -38,6 +39,11 @@ export function UploadPage() {
   const handlePersonChange = (value: string) => {
     setPerson(value);
     if (value) localStorage.setItem('grain_last_person', value);
+  };
+
+  const handleOriginChange = (value: string) => {
+    setOrigin(value);
+    if (value) localStorage.setItem('grain_last_origin', value);
   };
 
   const handleImageCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -102,7 +108,7 @@ export function UploadPage() {
           through: 'Akron',
           image_url: uploadData.url,
           status: 'needs_review',
-          origin: 'upload_page',
+          origin: origin || 'upload_page',
           crop_year: currentYear,
           deleted: false,
         },
@@ -186,6 +192,20 @@ export function UploadPage() {
             <option value="">Select person</option>
             {PERSON_OPTIONS.map((p) => (
               <option key={p} value={p}>{p}</option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-1 text-white">Loading from?</label>
+          <select
+            value={origin}
+            onChange={(e) => handleOriginChange(e.target.value)}
+            className="w-full px-3 py-3 bg-gray-700 text-white rounded-lg text-lg"
+          >
+            <option value="">Select origin (optional)</option>
+            {ORIGIN_LOCATIONS.map((loc) => (
+              <option key={loc} value={loc}>{loc}</option>
             ))}
           </select>
         </div>
