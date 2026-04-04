@@ -4,6 +4,11 @@ import type { Database } from '../lib/database.types';
 
 type Contract = Database['public']['Tables']['contracts']['Row'];
 type Ticket = Database['public']['Tables']['tickets']['Row'];
+type TicketSplit = Database['public']['Tables']['ticket_splits']['Row'];
+
+interface SplitWithTicket extends TicketSplit {
+  ticket?: Ticket;
+}
 
 interface ContractDetailModalProps {
   contract: Contract;
@@ -11,31 +16,62 @@ interface ContractDetailModalProps {
 }
 
 export function ContractDetailModal({ contract, onClose }: ContractDetailModalProps) {
-  const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [splits, setSplits] = useState<SplitWithTicket[]>([]);
+  const [legacyTickets, setLegacyTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchTickets();
+    fetchAllocations();
   }, [contract.id]);
 
-  const fetchTickets = async () => {
+  const fetchAllocations = async () => {
     setLoading(true);
-    const { data, error } = await supabase
+
+    // Fetch splits for this contract
+    const { data: splitsData } = await supabase
+      .from('ticket_splits')
+      .select('*')
+      .eq('contract_id', contract.id);
+
+    const splitTicketIds = new Set((splitsData || []).map(s => s.ticket_id));
+
+    // Fetch the tickets referenced by splits
+    let ticketsForSplits: Ticket[] = [];
+    if (splitTicketIds.size > 0) {
+      const { data } = await supabase
+        .from('tickets')
+        .select('*')
+        .in('id', Array.from(splitTicketIds))
+        .eq('deleted', false);
+      ticketsForSplits = data || [];
+    }
+
+    // Join splits with their tickets
+    const splitsWithTickets: SplitWithTicket[] = (splitsData || []).map(s => ({
+      ...s,
+      ticket: ticketsForSplits.find(t => t.id === s.ticket_id),
+    }));
+
+    // Also fetch legacy tickets (contract_id set but NO splits exist for them)
+    const { data: allContractTickets } = await supabase
       .from('tickets')
       .select('*')
       .eq('contract_id', contract.id)
-      .eq('deleted', false)
-      .order('ticket_date', { ascending: false });
+      .eq('deleted', false);
 
-    if (error) {
-      console.error('Error fetching contract tickets:', error);
-    } else {
-      setTickets(data || []);
-    }
+    const legacy = (allContractTickets || []).filter(t => !splitTicketIds.has(t.id));
+
+    setSplits(splitsWithTickets);
+    setLegacyTickets(legacy);
     setLoading(false);
   };
 
-  const totalDelivered = tickets.reduce((sum, t) => sum + (t.bushels || 0), 0);
+  // Total bushels: splits use split.bushels (correct), legacy use ticket.bushels
+  const splitTotal = splits.reduce((sum, s) => sum + (s.bushels || 0), 0);
+  const legacyTotal = legacyTickets.reduce((sum, t) => sum + (t.bushels || 0), 0);
+  const totalDelivered = splitTotal + legacyTotal;
+  const allCount = splits.length + legacyTickets.length;
+
   const percentFilled = contract.contracted_bushels > 0
     ? ((contract.delivered_bushels / contract.contracted_bushels) * 100).toFixed(1)
     : '0.0';
@@ -139,12 +175,12 @@ export function ContractDetailModal({ contract, onClose }: ContractDetailModalPr
         {/* Allocated Tickets */}
         <div>
           <h3 className="text-lg font-bold text-white mb-3">
-            Allocated Tickets ({tickets.length})
+            Allocated Tickets ({allCount})
           </h3>
 
           {loading ? (
             <div className="text-gray-400 text-center py-4">Loading tickets...</div>
-          ) : tickets.length === 0 ? (
+          ) : allCount === 0 ? (
             <div className="text-gray-400 text-center py-4">No tickets allocated to this contract</div>
           ) : (
             <div className="overflow-x-auto">
@@ -162,7 +198,39 @@ export function ContractDetailModal({ contract, onClose }: ContractDetailModalPr
                   </tr>
                 </thead>
                 <tbody>
-                  {tickets.map((ticket) => (
+                  {/* Splits — show split.bushels, not ticket.bushels */}
+                  {splits.map((split) => (
+                    <tr key={split.id} className="border-t border-gray-700 hover:bg-gray-700">
+                      <td className="px-3 py-2 text-white text-sm">
+                        {split.ticket ? new Date(split.ticket.ticket_date).toLocaleDateString() : '-'}
+                      </td>
+                      <td className="px-3 py-2 text-white text-sm">
+                        {split.ticket?.ticket_number || '-'}
+                        {split.ticket?.duplicate_flag && (
+                          <span className="ml-1 px-1 py-0.5 bg-orange-600 rounded text-xs">DUP</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-white text-sm">{split.person}</td>
+                      <td className="px-3 py-2 text-right text-white text-sm font-semibold">
+                        {split.bushels.toLocaleString()}
+                      </td>
+                      <td className="px-3 py-2 text-white text-sm">{split.ticket?.delivery_location || '-'}</td>
+                      <td className="px-3 py-2 text-white text-sm">{split.ticket?.through || '-'}</td>
+                      <td className="px-3 py-2 text-white text-sm">{split.ticket?.truck || '-'}</td>
+                      <td className="px-3 py-2 text-sm">
+                        <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
+                          split.ticket?.status === 'approved' ? 'bg-green-600' :
+                          split.ticket?.status === 'rejected' ? 'bg-red-600' :
+                          split.ticket?.status === 'hold' ? 'bg-yellow-600' :
+                          'bg-blue-600'
+                        } text-white`}>
+                          {split.ticket?.status || 'split'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                  {/* Legacy tickets (no splits, direct contract_id assignment) */}
+                  {legacyTickets.map((ticket) => (
                     <tr key={ticket.id} className="border-t border-gray-700 hover:bg-gray-700">
                       <td className="px-3 py-2 text-white text-sm">
                         {new Date(ticket.ticket_date).toLocaleDateString()}
@@ -196,7 +264,7 @@ export function ContractDetailModal({ contract, onClose }: ContractDetailModalPr
                 <tfoot className="bg-gray-700">
                   <tr>
                     <td colSpan={3} className="px-3 py-2 text-gray-300 text-sm font-semibold">
-                      Total: {tickets.length} ticket{tickets.length !== 1 ? 's' : ''}
+                      Total: {allCount} allocation{allCount !== 1 ? 's' : ''}
                     </td>
                     <td className="px-3 py-2 text-right text-white text-sm font-bold">
                       {totalDelivered.toLocaleString()}

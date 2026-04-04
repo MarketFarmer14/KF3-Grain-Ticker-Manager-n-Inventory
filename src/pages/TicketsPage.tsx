@@ -79,6 +79,117 @@ export function TicketsPage() {
   const [editState, setEditState] = useState<EditState | null>(null);
   const [saving, setSaving] = useState(false);
 
+  // Manual / batch entry modal
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [addMode, setAddMode] = useState<'single' | 'batch'>('batch');
+  const [addSaving, setAddSaving] = useState(false);
+
+  interface NewTicketRow {
+    ticket_date: string;
+    ticket_number: string;
+    person: string;
+    crop: string;
+    bushels: string;
+    delivery_location: string;
+    through: string;
+    truck: string;
+    origin: string;
+    notes: string;
+  }
+
+  const emptyRow = (): NewTicketRow => ({
+    ticket_date: new Date().toISOString().split('T')[0],
+    ticket_number: '',
+    person: '',
+    crop: '',
+    bushels: '',
+    delivery_location: '',
+    through: '',
+    truck: '',
+    origin: '',
+    notes: '',
+  });
+
+  const [addRows, setAddRows] = useState<NewTicketRow[]>([emptyRow()]);
+
+  const updateAddRow = (index: number, field: keyof NewTicketRow, value: string) => {
+    setAddRows(prev => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], [field]: value };
+      return updated;
+    });
+  };
+
+  const addNewRow = () => {
+    setAddRows(prev => {
+      // Copy person/crop/through/origin from last row for speed
+      const last = prev[prev.length - 1];
+      return [...prev, {
+        ...emptyRow(),
+        person: last.person,
+        crop: last.crop,
+        through: last.through,
+        origin: last.origin,
+        delivery_location: last.delivery_location,
+      }];
+    });
+  };
+
+  const removeAddRow = (index: number) => {
+    setAddRows(prev => prev.length <= 1 ? prev : prev.filter((_, i) => i !== index));
+  };
+
+  const handleSaveNewTickets = async () => {
+    const valid = addRows.filter(r => r.person && r.crop && r.bushels && parseFloat(r.bushels) > 0);
+    if (valid.length === 0) {
+      alert('Fill in at least Person, Crop, and Bushels for each row.');
+      return;
+    }
+
+    setAddSaving(true);
+    const normalized = normalizeTicketFields;
+
+    const inserts = valid.map(r => {
+      const norm = normalizeTicketFields({ person: r.person, crop: r.crop, through: r.through });
+      return {
+        ticket_date: r.ticket_date || new Date().toISOString().split('T')[0],
+        ticket_number: r.ticket_number || null,
+        person: norm.person,
+        crop: norm.crop,
+        bushels: parseFloat(r.bushels) || 0,
+        delivery_location: r.delivery_location || '',
+        through: norm.through,
+        truck: r.truck || null,
+        origin: r.origin || '',
+        notes: r.notes || null,
+        status: 'approved' as const,
+        crop_year: currentYear,
+        duplicate_flag: false,
+        deleted: false,
+        image_url: null,
+        duplicate_group: null,
+        moisture_percent: null,
+        dockage: null,
+        deleted_at: null,
+        deleted_by: null,
+        elevator: null,
+        contract_id: null,
+      };
+    });
+
+    const { error } = await supabase.from('tickets').insert(inserts);
+
+    if (error) {
+      alert('Failed to save tickets: ' + error.message);
+    } else {
+      alert(`${inserts.length} ticket(s) added as approved.`);
+      setShowAddModal(false);
+      setAddRows([emptyRow()]);
+      fetchTickets();
+    }
+    setAddSaving(false);
+  };
+
   // Multi-select state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkAction, setBulkAction] = useState('');
@@ -176,18 +287,38 @@ export function TicketsPage() {
       alert('No approved tickets to export.');
       return;
     }
-    const haulingData = approved.map(t => {
-      const contract = contracts.find(c => c.id === t.contract_id);
-      return {
-        ticket_date: t.ticket_date,
-        ticket_number: t.ticket_number,
-        person: t.person,
-        crop: t.crop,
-        delivery_location: t.delivery_location,
-        bushels: t.bushels,
-        contract_number: contract?.contract_number || '',
-      };
-    });
+    const haulingData: { ticket_date: string; ticket_number: string | null; person: string; crop: string; delivery_location: string; bushels: number; contract_number: string; }[] = [];
+
+    for (const t of approved) {
+      const ticketSplits = splits[t.id];
+      if (ticketSplits && ticketSplits.length > 0) {
+        // One row per split — uses split.bushels (correct allocation)
+        for (const s of ticketSplits) {
+          const contract = contracts.find(c => c.id === s.contract_id);
+          haulingData.push({
+            ticket_date: t.ticket_date,
+            ticket_number: t.ticket_number,
+            person: s.person,
+            crop: t.crop,
+            delivery_location: t.delivery_location,
+            bushels: s.bushels,
+            contract_number: contract?.contract_number || '',
+          });
+        }
+      } else {
+        // Legacy ticket — no splits, use ticket directly
+        const contract = contracts.find(c => c.id === t.contract_id);
+        haulingData.push({
+          ticket_date: t.ticket_date,
+          ticket_number: t.ticket_number,
+          person: t.person,
+          crop: t.crop,
+          delivery_location: t.delivery_location,
+          bushels: t.bushels,
+          contract_number: contract?.contract_number || '',
+        });
+      }
+    }
     exportHaulingLog(haulingData, `hauling_log_${currentYear}.xlsx`);
   };
 
@@ -646,6 +777,12 @@ export function TicketsPage() {
               >
                 <Download size={16} />
                 Export Hauling Log
+              </button>
+              <button
+                onClick={() => { setShowAddModal(true); setAddRows([emptyRow()]); }}
+                className="px-4 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded-lg font-semibold text-sm"
+              >
+                + Add Tickets
               </button>
             </>
           )}
@@ -1152,6 +1289,147 @@ export function TicketsPage() {
                 className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white rounded-lg font-semibold"
               >
                 {editSplitsSaving ? 'Saving...' : 'Save Splits'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Tickets Modal (Manual + Batch) */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-800 rounded-lg p-6 max-w-6xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-2xl font-bold text-white">Add Tickets</h2>
+              <div className="flex items-center gap-3">
+                <span className="text-gray-400 text-sm">{addRows.length} row{addRows.length !== 1 ? 's' : ''}</span>
+                <button
+                  onClick={() => { setShowAddModal(false); setAddRows([emptyRow()]); }}
+                  className="px-3 py-1 bg-gray-600 hover:bg-gray-500 text-white rounded text-lg font-bold"
+                >
+                  X
+                </button>
+              </div>
+            </div>
+
+            <p className="text-gray-400 text-sm mb-4">
+              Tickets are saved as <span className="text-green-400 font-semibold">approved</span>. Fill rows and click Save All. Person, Crop, and Bushels are required. New rows copy Person/Crop/Through/Origin from the last row.
+            </p>
+
+            {/* Batch table */}
+            <div className="overflow-x-auto mb-4">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-700">
+                  <tr>
+                    <th className="px-2 py-2 text-left text-gray-300">Date</th>
+                    <th className="px-2 py-2 text-left text-gray-300">Ticket #</th>
+                    <th className="px-2 py-2 text-left text-gray-300">Person*</th>
+                    <th className="px-2 py-2 text-left text-gray-300">Crop*</th>
+                    <th className="px-2 py-2 text-right text-gray-300">Bushels*</th>
+                    <th className="px-2 py-2 text-left text-gray-300">Location</th>
+                    <th className="px-2 py-2 text-left text-gray-300">Through</th>
+                    <th className="px-2 py-2 text-left text-gray-300">Truck</th>
+                    <th className="px-2 py-2 text-left text-gray-300">Origin</th>
+                    <th className="px-2 py-2 text-left text-gray-300">Notes</th>
+                    <th className="px-2 py-2"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {addRows.map((row, idx) => (
+                    <tr key={idx} className="border-t border-gray-700">
+                      <td className="px-1 py-1">
+                        <input type="date" value={row.ticket_date} onChange={(e) => updateAddRow(idx, 'ticket_date', e.target.value)}
+                          className="w-full px-1 py-1 bg-gray-700 text-white rounded text-xs border border-gray-600" />
+                      </td>
+                      <td className="px-1 py-1">
+                        <input type="text" value={row.ticket_number} onChange={(e) => updateAddRow(idx, 'ticket_number', e.target.value)}
+                          placeholder="-" className="w-full px-1 py-1 bg-gray-700 text-white rounded text-xs border border-gray-600" />
+                      </td>
+                      <td className="px-1 py-1">
+                        <select value={row.person} onChange={(e) => updateAddRow(idx, 'person', e.target.value)}
+                          className="w-full px-1 py-1 bg-gray-700 text-white rounded text-xs border border-gray-600">
+                          <option value="">--</option>
+                          {PERSON_OPTIONS.map(p => <option key={p} value={p}>{p}</option>)}
+                        </select>
+                      </td>
+                      <td className="px-1 py-1">
+                        <select value={row.crop} onChange={(e) => updateAddRow(idx, 'crop', e.target.value)}
+                          className="w-full px-1 py-1 bg-gray-700 text-white rounded text-xs border border-gray-600">
+                          <option value="">--</option>
+                          <option value="Corn">Corn</option>
+                          <option value="Soybeans">Soybeans</option>
+                        </select>
+                      </td>
+                      <td className="px-1 py-1">
+                        <input type="number" step="0.01" value={row.bushels} onChange={(e) => updateAddRow(idx, 'bushels', e.target.value)}
+                          placeholder="0" className="w-20 px-1 py-1 bg-gray-700 text-white rounded text-xs text-right border border-gray-600" />
+                      </td>
+                      <td className="px-1 py-1">
+                        <input type="text" value={row.delivery_location} onChange={(e) => updateAddRow(idx, 'delivery_location', e.target.value)}
+                          placeholder="-" className="w-full px-1 py-1 bg-gray-700 text-white rounded text-xs border border-gray-600" />
+                      </td>
+                      <td className="px-1 py-1">
+                        <select value={row.through} onChange={(e) => updateAddRow(idx, 'through', e.target.value)}
+                          className="w-full px-1 py-1 bg-gray-700 text-white rounded text-xs border border-gray-600">
+                          <option value="">--</option>
+                          <option value="Akron">Akron</option>
+                          <option value="RVC">RVC</option>
+                          <option value="Cargill">Cargill</option>
+                          <option value="ADM">ADM</option>
+                        </select>
+                      </td>
+                      <td className="px-1 py-1">
+                        <input type="text" value={row.truck} onChange={(e) => updateAddRow(idx, 'truck', e.target.value)}
+                          placeholder="-" className="w-16 px-1 py-1 bg-gray-700 text-white rounded text-xs border border-gray-600" />
+                      </td>
+                      <td className="px-1 py-1">
+                        <select value={row.origin} onChange={(e) => updateAddRow(idx, 'origin', e.target.value)}
+                          className="w-full px-1 py-1 bg-gray-700 text-white rounded text-xs border border-gray-600">
+                          <option value="">--</option>
+                          {ORIGIN_LOCATIONS.map(loc => <option key={loc} value={loc}>{loc}</option>)}
+                        </select>
+                      </td>
+                      <td className="px-1 py-1">
+                        <input type="text" value={row.notes} onChange={(e) => updateAddRow(idx, 'notes', e.target.value)}
+                          placeholder="-" className="w-24 px-1 py-1 bg-gray-700 text-white rounded text-xs border border-gray-600" />
+                      </td>
+                      <td className="px-1 py-1 text-center">
+                        {addRows.length > 1 && (
+                          <button onClick={() => removeAddRow(idx)} className="px-1.5 py-0.5 bg-red-600 hover:bg-red-700 text-white rounded text-xs">X</button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={addNewRow}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold"
+              >
+                + Add Row
+              </button>
+              <button
+                onClick={() => { for (let i = 0; i < 5; i++) addNewRow(); }}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold"
+              >
+                + Add 5 Rows
+              </button>
+              <div className="flex-1" />
+              <button
+                onClick={() => { setShowAddModal(false); setAddRows([emptyRow()]); }}
+                className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveNewTickets}
+                disabled={addSaving}
+                className="px-6 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white rounded-lg text-sm font-semibold"
+              >
+                {addSaving ? 'Saving...' : `Save ${addRows.filter(r => r.person && r.crop && r.bushels).length} Ticket(s)`}
               </button>
             </div>
           </div>

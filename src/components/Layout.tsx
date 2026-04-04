@@ -10,7 +10,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const [reviewCount, setReviewCount] = useState(0);
   const [refreshKey, setRefreshKey] = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => {
+    return localStorage.getItem('sidebar_collapsed') === 'true';
+  });
 
   // Smart year default: 2025 until September 1, then 2026
   const getDefaultYear = () => {
@@ -139,7 +141,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <div className={`p-3 ${collapsed ? 'px-1' : ''} space-y-2`}>
           {/* Collapse toggle — desktop only */}
           <button
-            onClick={() => setCollapsed(!collapsed)}
+            onClick={() => { const next = !collapsed; setCollapsed(next); localStorage.setItem('sidebar_collapsed', String(next)); }}
             className="hidden lg:flex w-full items-center justify-center px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm text-gray-300"
             title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           >
