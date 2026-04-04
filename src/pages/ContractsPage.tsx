@@ -13,6 +13,8 @@ type SortDirection = 'asc' | 'desc';
 
 export function ContractsPage() {
   const [contracts, setContracts] = useState<Contract[]>([]);
+  // Actual delivered per contract from ticket_splits (source of truth)
+  const [splitTotals, setSplitTotals] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
@@ -59,17 +61,48 @@ export function ContractsPage() {
 
   const fetchContracts = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('contracts')
-      .select('*')
-      .eq('crop_year', currentYear)
-      .order(sortField, { ascending: sortDirection === 'asc' });
+    const [contractsRes, splitsRes, ticketsRes] = await Promise.all([
+      supabase
+        .from('contracts')
+        .select('*')
+        .eq('crop_year', currentYear)
+        .order(sortField, { ascending: sortDirection === 'asc' }),
+      supabase
+        .from('ticket_splits')
+        .select('contract_id, bushels, ticket_id'),
+      supabase
+        .from('tickets')
+        .select('id, contract_id, bushels')
+        .eq('crop_year', currentYear)
+        .eq('deleted', false)
+        .eq('status', 'approved')
+        .not('contract_id', 'is', null),
+    ]);
 
-    if (error) {
-      console.error('Error fetching contracts:', error);
+    if (contractsRes.error) {
+      console.error('Error fetching contracts:', contractsRes.error);
     } else {
-      setContracts(data || []);
+      setContracts(contractsRes.data || []);
     }
+
+    // Build actual delivered per contract from splits + legacy tickets
+    const totals: Record<string, number> = {};
+    const ticketsWithSplits = new Set((splitsRes.data || []).map(s => s.ticket_id));
+
+    // Add split bushels (source of truth)
+    (splitsRes.data || []).forEach(s => {
+      totals[s.contract_id] = (totals[s.contract_id] || 0) + s.bushels;
+    });
+
+    // Add legacy tickets (contract_id set but NO splits exist)
+    (ticketsRes.data || []).forEach(t => {
+      if (t.contract_id && !ticketsWithSplits.has(t.id)) {
+        totals[t.contract_id] = (totals[t.contract_id] || 0) + t.bushels;
+      }
+    });
+
+    setSplitTotals(totals);
+
     setLoading(false);
   };
 
@@ -350,7 +383,9 @@ export function ContractsPage() {
     const rows = contracts
       .filter(c => !c.is_spot_sale)
       .map(c => {
-        const pct = c.percent_filled || 0;
+        const actual = splitTotals[c.id] || 0;
+        const rem = c.contracted_bushels - actual;
+        const pct = c.contracted_bushels > 0 ? (actual / c.contracted_bushels) * 100 : 0;
         const status = pct >= 100 ? 'Complete' : pct > 0 ? 'In Progress' : 'Open';
         return [
           c.owner || '',
@@ -361,8 +396,8 @@ export function ContractsPage() {
           '', // Price — not tracked in web app, filled in Excel
           c.start_date || '',
           c.end_date || '',
-          c.delivered_bushels,
-          c.remaining_bushels,
+          actual,
+          rem,
           status,
         ];
       });
@@ -550,9 +585,18 @@ export function ContractsPage() {
                   <td className="px-4 py-3 text-white">{contract.through || '-'}</td>
                   <td className="px-4 py-3 text-white">{contract.destination}</td>
                   <td className="px-4 py-3 text-right text-white">{contract.contracted_bushels.toLocaleString()}</td>
-                  <td className="px-4 py-3 text-right text-white">{contract.delivered_bushels.toLocaleString()}</td>
-                  <td className="px-4 py-3 text-right text-white">{contract.remaining_bushels.toLocaleString()}</td>
-                  <td className="px-4 py-3 text-right text-white">{contract.percent_filled?.toFixed(1)}%</td>
+                  {(() => {
+                    const actual = splitTotals[contract.id] || 0;
+                    const rem = contract.contracted_bushels - actual;
+                    const pctCalc = contract.contracted_bushels > 0 ? (actual / contract.contracted_bushels) * 100 : 0;
+                    return (
+                      <>
+                        <td className="px-4 py-3 text-right text-white">{actual.toLocaleString()}</td>
+                        <td className={`px-4 py-3 text-right font-semibold ${rem < 0 ? 'text-red-400' : 'text-white'}`}>{rem.toLocaleString()}</td>
+                        <td className="px-4 py-3 text-right text-white">{pctCalc.toFixed(1)}%</td>
+                      </>
+                    );
+                  })()}
                   <td className="px-4 py-3 text-white text-sm">
                     {contract.start_date ? new Date(contract.start_date).toLocaleDateString() : '—'}
                   </td>

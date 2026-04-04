@@ -72,9 +72,13 @@ export function ContractDetailModal({ contract, onClose }: ContractDetailModalPr
   const totalDelivered = splitTotal + legacyTotal;
   const allCount = splits.length + legacyTickets.length;
 
-  const percentFilled = contract.contracted_bushels > 0
-    ? ((contract.delivered_bushels / contract.contracted_bushels) * 100).toFixed(1)
-    : '0.0';
+  // Use calculated total from splits/tickets, not stale contract.delivered_bushels
+  const actualDelivered = totalDelivered;
+  const actualRemaining = contract.contracted_bushels - actualDelivered;
+  const actualPercent = contract.contracted_bushels > 0
+    ? (actualDelivered / contract.contracted_bushels) * 100
+    : 0;
+  const percentFilled = actualPercent.toFixed(1);
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -127,13 +131,13 @@ export function ContractDetailModal({ contract, onClose }: ContractDetailModalPr
           <div className="w-full bg-gray-600 rounded-full h-4 mb-3">
             <div
               className={`h-4 rounded-full ${
-                (contract.percent_filled || 0) >= 100
+                actualPercent >= 100
                   ? 'bg-gray-500'
-                  : (contract.percent_filled || 0) >= 75
+                  : actualPercent >= 75
                   ? 'bg-yellow-500'
                   : 'bg-emerald-500'
               }`}
-              style={{ width: `${Math.min(contract.percent_filled || 0, 100)}%` }}
+              style={{ width: `${Math.min(actualPercent, 100)}%` }}
             ></div>
           </div>
           <div className="grid grid-cols-3 gap-4 text-center">
@@ -143,11 +147,11 @@ export function ContractDetailModal({ contract, onClose }: ContractDetailModalPr
             </div>
             <div>
               <div className="text-gray-400 text-xs">Delivered</div>
-              <div className="text-white font-bold">{contract.delivered_bushels.toLocaleString()}</div>
+              <div className="text-white font-bold">{actualDelivered.toLocaleString()}</div>
             </div>
             <div>
               <div className="text-gray-400 text-xs">Remaining</div>
-              <div className="text-white font-bold">{contract.remaining_bushels.toLocaleString()}</div>
+              <div className={`font-bold ${actualRemaining < 0 ? 'text-red-400' : 'text-white'}`}>{actualRemaining.toLocaleString()}</div>
             </div>
           </div>
         </div>
