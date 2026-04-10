@@ -405,19 +405,21 @@ export function ReviewQueuePage() {
 
       if (ticketError) throw ticketError;
 
-      // Insert all splits into ticket_splits table
-      const splitInserts = confirmSplits.map(s => ({
-        ticket_id: confirmTicket.id,
-        contract_id: s.contract.id,
-        person: s.person,
-        bushels: s.bushels,
-      }));
+      // Only insert splits when ticket is actually split across multiple contracts
+      if (confirmSplits.length > 1) {
+        const splitInserts = confirmSplits.map(s => ({
+          ticket_id: confirmTicket.id,
+          contract_id: s.contract.id,
+          person: s.person,
+          bushels: s.bushels,
+        }));
 
-      const { error: splitsError } = await supabase
-        .from('ticket_splits')
-        .insert(splitInserts);
+        const { error: splitsError } = await supabase
+          .from('ticket_splits')
+          .insert(splitInserts);
 
-      if (splitsError) throw splitsError;
+        if (splitsError) throw splitsError;
+      }
 
       // delivered_bushels NOT updated here — Excel handles delivery accounting
       // via UpdateContractDeliveries from the Hauling Log export

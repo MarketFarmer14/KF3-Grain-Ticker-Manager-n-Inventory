@@ -443,14 +443,16 @@ export function TicketsPage() {
         .update({ contract_id: result.splits[0].contract.id })
         .eq('id', ticket.id);
 
-      // Insert new splits
-      const splitInserts = result.splits.map(s => ({
-        ticket_id: ticket.id,
-        contract_id: s.contract.id,
-        person: s.person,
-        bushels: s.bushels,
-      }));
-      await supabase.from('ticket_splits').insert(splitInserts);
+      // Only insert splits when ticket is actually split across multiple contracts
+      if (result.splits.length > 1) {
+        const splitInserts = result.splits.map(s => ({
+          ticket_id: ticket.id,
+          contract_id: s.contract.id,
+          person: s.person,
+          bushels: s.bushels,
+        }));
+        await supabase.from('ticket_splits').insert(splitInserts);
+      }
 
       const msg = result.splits.map(s => `#${s.contract.contract_number}: ${s.bushels.toLocaleString()} bu`).join(', ');
       alert(`Rematched: ${msg}${result.remainder > 0 ? ` (${result.remainder.toLocaleString()} bu unassigned)` : ''}`);
@@ -478,16 +480,8 @@ export function TicketsPage() {
       return;
     }
 
-    // Sync splits: delete old, create single split for full bushels on new contract
+    // Delete old splits — single-contract assignment doesn't need a split record
     await supabase.from('ticket_splits').delete().eq('ticket_id', ticketId);
-    if (contractId) {
-      await supabase.from('ticket_splits').insert({
-        ticket_id: ticketId,
-        contract_id: contractId,
-        person: ticket.person,
-        bushels: ticket.bushels,
-      });
-    }
 
     setAssigningId(null);
     fetchTickets();
@@ -579,14 +573,16 @@ export function TicketsPage() {
           .update({ contract_id: editSplitsData[0].contract.id })
           .eq('id', editSplitsTicket.id);
 
-        // Insert new splits
-        const splitInserts = editSplitsData.map(s => ({
-          ticket_id: editSplitsTicket.id,
-          contract_id: s.contract.id,
-          person: s.person,
-          bushels: s.bushels,
-        }));
-        await supabase.from('ticket_splits').insert(splitInserts);
+        // Only insert splits when ticket is actually split across multiple contracts
+        if (editSplitsData.length > 1) {
+          const splitInserts = editSplitsData.map(s => ({
+            ticket_id: editSplitsTicket.id,
+            contract_id: s.contract.id,
+            person: s.person,
+            bushels: s.bushels,
+          }));
+          await supabase.from('ticket_splits').insert(splitInserts);
+        }
       }
 
       setEditSplitsTicket(null);
