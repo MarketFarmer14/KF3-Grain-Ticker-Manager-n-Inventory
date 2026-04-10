@@ -24,6 +24,47 @@ export function HaulBoardPage() {
 
   useEffect(() => {
     fetchContracts();
+
+    // Subscribe to realtime changes on contracts table
+    const channel = supabase
+      .channel('haul-board-contracts')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'contracts' },
+        () => {
+          fetchContracts();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'tickets' },
+        () => {
+          // Ticket changes trigger contract recalc via DB trigger
+          // Small delay to let the trigger finish updating contracts
+          setTimeout(() => fetchContracts(), 500);
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'ticket_splits' },
+        () => {
+          setTimeout(() => fetchContracts(), 500);
+        }
+      )
+      .subscribe();
+
+    // Refetch when tab becomes visible (covers navigation back)
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        fetchContracts();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      supabase.removeChannel(channel);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
   }, [currentYear]);
 
   useEffect(() => {
