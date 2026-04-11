@@ -46,9 +46,42 @@ export function UploadPage() {
     if (value) localStorage.setItem('grain_last_origin', value);
   };
 
-  const handleImageCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageCapture = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
+    if (!file) return;
+
+    // Convert HEIC/unsupported formats to JPEG via canvas (iPhone uploads HEIC by default)
+    if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(file.type)) {
+      try {
+        const converted = await new Promise<File>((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.naturalWidth;
+            canvas.height = img.naturalHeight;
+            canvas.getContext('2d')!.drawImage(img, 0, 0);
+            canvas.toBlob(
+              (blob) => {
+                if (!blob) { reject(new Error('Conversion failed')); return; }
+                resolve(new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' }));
+              },
+              'image/jpeg',
+              0.92
+            );
+            URL.revokeObjectURL(img.src);
+          };
+          img.onerror = () => reject(new Error('Could not load image'));
+          img.src = URL.createObjectURL(file);
+        });
+        setImageFile(converted);
+        const reader = new FileReader();
+        reader.onloadend = () => setImagePreview(reader.result as string);
+        reader.readAsDataURL(converted);
+      } catch {
+        alert('Unsupported image format. Please use JPEG or PNG.');
+        return;
+      }
+    } else {
       setImageFile(file);
       const reader = new FileReader();
       reader.onloadend = () => setImagePreview(reader.result as string);

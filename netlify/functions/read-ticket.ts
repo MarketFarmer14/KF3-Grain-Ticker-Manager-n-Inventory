@@ -47,7 +47,15 @@ export const handler = async (event: any) => {
       return { statusCode: 400, body: JSON.stringify({ error: 'No image provided' }) };
     }
 
-    // Step 1: Get image as base64
+    // Step 1: Check for unsupported formats
+    if (imageUrl && /\.heic$/i.test(imageUrl)) {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ error: 'HEIC format not supported. Please re-upload this ticket as JPEG.' }),
+      };
+    }
+
+    // Step 2: Get image as base64
     step = 'fetching image';
     let base64Data: string;
     if (imageBase64) {
