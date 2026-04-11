@@ -181,26 +181,12 @@ export function ReviewQueuePage() {
     setAiProcessing(ticket.id);
 
     try {
-      const response = await fetch(ticket.image_url);
-      const blob = await response.blob();
-
-      const base64Data = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          const result = reader.result as string;
-          const base64 = result.split(',')[1];
-          resolve(base64);
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-      });
-
       const aiResponse = await fetch('/.netlify/functions/read-ticket', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ imageBase64: base64Data }),
+        body: JSON.stringify({ imageUrl: ticket.image_url }),
       });
 
       if (!aiResponse.ok) {

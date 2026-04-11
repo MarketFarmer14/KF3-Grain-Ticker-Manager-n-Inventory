@@ -1,29 +1,35 @@
 // Netlify Function: AI Ticket Reader with Usage Tracking
 import OpenAI from 'openai';
 import { createClient } from '@supabase/supabase-js';
-import https from 'https';
-import http from 'http';
+import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 
-// Fetch image using Node built-in modules (guaranteed to work, no fetch polyfill needed)
-function fetchImageBuffer(url: string): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const client = url.startsWith('https') ? https : http;
-    client.get(url, (res) => {
-      if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        // Follow redirect
-        fetchImageBuffer(res.headers.location).then(resolve).catch(reject);
-        return;
-      }
-      if (res.statusCode && res.statusCode !== 200) {
-        reject(new Error(`Image fetch returned HTTP ${res.statusCode} for ${url}`));
-        return;
-      }
-      const chunks: Buffer[] = [];
-      res.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
-      res.on('end', () => resolve(Buffer.concat(chunks)));
-      res.on('error', reject);
-    }).on('error', reject);
+// Fetch image from R2 via S3 API (avoids CORS and SSL certificate issues with public URLs)
+async function fetchImageFromR2(imageUrl: string): Promise<Buffer> {
+  const r2 = new S3Client({
+    region: 'auto',
+    endpoint: process.env.R2_ENDPOINT!,
+    credentials: {
+      accessKeyId: process.env.R2_ACCESS_KEY_ID!,
+      secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!,
+    },
   });
+
+  // Extract the key from the public URL (e.g., ".../tickets/1234-image.jpg" -> "tickets/1234-image.jpg")
+  const urlPath = new URL(imageUrl).pathname;
+  const key = urlPath.startsWith('/') ? urlPath.slice(1) : urlPath;
+
+  const command = new GetObjectCommand({
+    Bucket: 'kf3-grain-tickets',
+    Key: key,
+  });
+
+  const response = await r2.send(command);
+  const stream = response.Body as any;
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) {
+    chunks.push(Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
 }
 
 export const handler = async (event: any) => {
@@ -47,7 +53,7 @@ export const handler = async (event: any) => {
     if (imageBase64) {
       base64Data = imageBase64;
     } else {
-      const imageBuffer = await fetchImageBuffer(imageUrl);
+      const imageBuffer = await fetchImageFromR2(imageUrl);
       base64Data = imageBuffer.toString('base64');
       if (!base64Data || base64Data.length < 100) {
         return {
