@@ -293,7 +293,7 @@ export function TicketsPage() {
       alert('No approved tickets to export.');
       return;
     }
-    const haulingData: { ticket_date: string; ticket_number: string | null; person: string; crop: string; delivery_location: string; bushels: number; contract_number: string; }[] = [];
+    const haulingData: { ticket_date: string; ticket_number: string | null; person: string; crop: string; through: string; delivery_location: string; bushels: number; contract_number: string; }[] = [];
 
     for (const t of approved) {
       const ticketSplits = splits[t.id];
@@ -306,6 +306,8 @@ export function TicketsPage() {
             ticket_number: t.ticket_number,
             person: s.person,
             crop: t.crop,
+            // Prefer the contract's buyer so Excel delivery matching always aligns
+            through: contract?.through || t.through || '',
             delivery_location: t.delivery_location,
             bushels: s.bushels,
             contract_number: contract?.contract_number || '',
@@ -319,6 +321,7 @@ export function TicketsPage() {
           ticket_number: t.ticket_number,
           person: t.person,
           crop: t.crop,
+          through: contract?.through || t.through || '',
           delivery_location: t.delivery_location,
           bushels: t.bushels,
           contract_number: contract?.contract_number || '',

@@ -39,13 +39,18 @@ export const exportTicketsToExcel = (
 };
 
 // Hauling Log export: Date | Owner | Crop | Destination | Ticket # | Bushels | Contract #
-// Matches Excel Hauling Log sheet format for direct paste
+// Consumed by the Grain workbook's ImportFromKF3 macro.
+// Destination carries `through` (the elevator/buyer) because Excel's
+// UpdateContractDeliveries matches Hauling Log Destination against the
+// contract's Elevator/Buyer. Falls back to delivery_location when through
+// is empty.
 
 interface HaulingLogTicket {
   ticket_date: string;
   ticket_number: string | null;
   person: string;
   crop: string;
+  through: string;
   delivery_location: string;
   bushels: number;
   contract_number: string;
@@ -62,7 +67,7 @@ export const exportHaulingLog = (
     t.ticket_date || '',
     t.person || '',
     t.crop || '',
-    t.delivery_location || '',
+    t.through || t.delivery_location || '',
     t.ticket_number || '',
     t.bushels,
     t.contract_number || '',
